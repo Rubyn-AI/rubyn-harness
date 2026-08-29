@@ -247,6 +247,30 @@ fn inspect_project(project_path: String) -> CommandResult<ProjectSummary> {
 }
 
 #[tauri::command]
+fn trust_project(
+    app: AppHandle,
+    runtime: State<'_, AppRuntime>,
+    project_path: String,
+) -> CommandResult<LocalAppState> {
+    let project = services::canonical_project(&project_path).map_err(to_command_error)?;
+    let inspected =
+        services::inspect_project(project.to_string_lossy().as_ref()).map_err(to_command_error)?;
+    if inspected.git_root.is_none() {
+        return Err(format!(
+            "{} is not a Git repository. Initialize Git or choose the repository root.",
+            project.display()
+        ));
+    }
+    let mut repository = state_repository(&app, &runtime)?;
+    let repository = repository
+        .as_mut()
+        .expect("state repository is initialized");
+    let mut state = repository.snapshot();
+    state.trust_project(&project);
+    repository.replace(state).map_err(to_command_error)
+}
+
+#[tauri::command]
 fn get_git_status(project_path: String) -> CommandResult<GitStatus> {
     services::git_status(&project_path).map_err(to_command_error)
 }
@@ -293,6 +317,7 @@ fn launch_engine(
     ensure_provider_connected(&app, request.provider.as_deref())?;
     let attachment_summaries = attachment_summaries(&request.attachments);
     let project = services::canonical_project(&request.project_path).map_err(to_command_error)?;
+    ensure_project_trusted(&app, &runtime, &project)?;
     let mut engines = runtime
         .engines
         .lock()
@@ -618,6 +643,7 @@ fn get_project_data(
     project_path: String,
 ) -> CommandResult<ProjectData> {
     let project = services::canonical_project(&project_path).map_err(to_command_error)?;
+    ensure_project_trusted(&app, &runtime, &project)?;
     let mut repository = state_repository(&app, &runtime)?;
     let repository = repository
         .as_mut()
@@ -1115,6 +1141,27 @@ fn state_repository<'a>(
     Ok(guard)
 }
 
+fn ensure_project_trusted(
+    app: &AppHandle,
+    runtime: &AppRuntime,
+    project: &Path,
+) -> CommandResult<()> {
+    let repository = state_repository(app, runtime)?;
+    if repository
+        .as_ref()
+        .expect("state repository is initialized")
+        .snapshot()
+        .trusts_project(project)
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "Project trust required for {}. Inspect and confirm this repository in Projects before opening or running work.",
+            project.display()
+        ))
+    }
+}
+
 #[tauri::command]
 fn list_wayfinder_maps(
     app: AppHandle,
@@ -1360,6 +1407,7 @@ pub fn run() {
             start_codex_login,
             scan_projects,
             inspect_project,
+            trust_project,
             get_git_status,
             get_git_diff,
             get_app_state,

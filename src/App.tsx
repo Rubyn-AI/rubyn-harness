@@ -48,6 +48,7 @@ import {
   type AttachmentSelection,
   type AgentProfile,
   type EditApprovalRecord,
+  type ProjectSummary,
 } from "./bridge";
 import { type View, useHarnessStore } from "./store";
 import { Wayfinder } from "./Wayfinder";
@@ -67,6 +68,7 @@ const utilityNavigation: { id: View; label: string; icon: typeof Activity }[] = 
   { id: "projects", label: "Projects", icon: FolderKanban },
 ];
 const navigation = [...primaryNavigation, ...utilityNavigation];
+const ONBOARDING_VERSION = 1;
 
 const labels: Record<View, string> = {
   control: "Control room",
@@ -100,6 +102,23 @@ function EmptyState({ title, children, action }: { title: string; children: stri
       {action}
     </div>
   );
+}
+
+function FirstLaunchDisclosure({ state, onContinue }: { state: LocalAppState; onContinue: (state: LocalAppState) => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const continueToHarness = async () => {
+    setSaving(true);
+    try { await onContinue({ ...state, onboardingVersion: ONBOARDING_VERSION }); } finally { setSaving(false); }
+  };
+  return <main className="onboarding-shell"><section className="onboarding-card" aria-labelledby="welcome-title"><span className="brand-mark">R</span><Kicker>External beta trust boundary</Kicker><h1 id="welcome-title">Your repository stays under your control.</h1><p>Rubyn Harness works locally with repositories you explicitly trust. Before beta work begins, here is the boundary it will keep.</p><div className="onboarding-facts"><article><GitBranch size={18} /><div><strong>Isolated by default</strong><span>Agent work starts in a separate Git worktree, never directly in your source checkout.</span></div></article><article><ShieldCheck size={18} /><div><strong>You approve repository edits</strong><span>File changes wait for an explicit decision and remain reviewable before integration.</span></div></article><article><KeyRound size={18} /><div><strong>Models require your account</strong><span>Provider credentials stay on this Mac and must be connected before model-backed work can run.</span></div></article><article><FolderKanban size={18} /><div><strong>Trust one repository at a time</strong><span>Rubyn will inspect and show the canonical path before remembering a project locally.</span></div></article></div><p className="onboarding-local-note">Harness stores workspace history and trust decisions in local application data. The first beta is intended only for repositories you already trust.</p><button className="button primary" onClick={() => void continueToHarness()} disabled={saving}>{saving ? "Saving…" : "I understand — continue"}<ArrowRight size={15} /></button></section></main>;
+}
+
+function ProjectTrustDialog({ project, engineReady, providerReady, onCancel, onConfirm, busy }: { project: ProjectSummary; engineReady: boolean; providerReady: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
+  return <div className="modal-backdrop trust-backdrop" role="presentation"><section className="trust-dialog" role="dialog" aria-modal="true" aria-labelledby="trust-project-title"><header><span className="trust-mark"><ShieldCheck size={20} /></span><div><Kicker>Repository trust</Kicker><h2 id="trust-project-title">Trust {project.name}?</h2></div></header><p>Rubyn will be allowed to create isolated worktrees and run approved model work for this repository.</p><dl><div><dt>Canonical path</dt><dd>{project.path}</dd></div><div><dt>Project kind</dt><dd>{project.isRails ? "Rails" : project.isRuby ? "Ruby" : "Git"}</dd></div><div><dt>Git root</dt><dd>{project.gitRoot || "Not available"}</dd></div><div><dt>Rubyn instructions</dt><dd>{project.hasRubynInstructions ? "RUBYN.md detected" : "None detected"}</dd></div><div><dt>Native engine</dt><dd>{engineReady ? "Ready" : "Needs setup in Project runtime"}</dd></div><div><dt>Model provider</dt><dd>{providerReady ? "Ready" : "Connect one in Models & accounts"}</dd></div></dl><small>Only continue if you know and trust this repository and its configuration.</small><footer><button className="button quiet" onClick={onCancel} disabled={busy}>Cancel</button><button className="button primary" onClick={onConfirm} disabled={busy}>{busy ? "Opening…" : "Trust and open"}</button></footer></section></div>;
+}
+
+function projectIsTrusted(state: LocalAppState | undefined, path: string) {
+  return Boolean(state?.trustedProjectPaths?.includes(path));
 }
 
 function ProjectRequired() {
@@ -1101,6 +1120,7 @@ function Projects() {
   const [checking, setChecking] = useState(false);
   const [chiselMode, setChiselMode] = useState<"off" | "lite" | "full" | "ultra">();
   const [savingChisel, setSavingChisel] = useState(false);
+  const [pendingTrust, setPendingTrust] = useState<ProjectSummary>();
 
   useEffect(() => {
     let current = true;
@@ -1108,25 +1128,29 @@ function Projects() {
     return () => { current = false; };
   }, []);
 
+  const openInspected = async (inspected: ProjectSummary, trust = false) => {
+    const state = trust ? await harnessBridge.trustProject(inspected.path) : appState || await harnessBridge.appState();
+    const nextState = {
+      ...state,
+      recentProjects: [{ path: inspected.path, name: inspected.name }, ...state.recentProjects.filter((recent) => recent.path !== inspected.path)].slice(0, 24),
+    };
+    const saved = await harnessBridge.saveAppState(nextState);
+    const data = await harnessBridge.projectData(inspected.path);
+    setProject(inspected);
+    setProjectData(data);
+    setAppState(saved);
+    setPath("");
+    setPendingTrust(undefined);
+    setNotice(`${inspected.isRails ? "Rails" : inspected.isRuby ? "Ruby" : "Git"} project ready.`);
+    openConversation(data.runs[0]?.id || 0);
+  };
   const choose = async (projectPath: string) => {
     setChecking(true);
     try {
       const inspected = await harnessBridge.inspectProject(projectPath.trim());
-      const data = await harnessBridge.projectData(inspected.path);
-      const state = appState || await harnessBridge.appState();
-      const nextState: LocalAppState = {
-        ...state,
-        recentProjects: [
-          { path: inspected.path, name: inspected.name },
-          ...state.recentProjects.filter((recent) => recent.path !== inspected.path),
-        ].slice(0, 24),
-      };
-      setProject(inspected);
-      setProjectData(data);
-      setAppState(await harnessBridge.saveAppState(nextState));
-      setPath("");
-      setNotice(`${inspected.isRails ? "Rails" : inspected.isRuby ? "Ruby" : "Git"} project ready.`);
-      openConversation(data.runs[0]?.id || 0);
+      if (!inspected.gitRoot) throw new Error(`${inspected.path} is not a Git repository. Initialize Git or choose the repository root.`);
+      if (projectIsTrusted(appState, inspected.path)) await openInspected(inspected);
+      else setPendingTrust(inspected);
     } catch (error) { setNotice(String(error)); } finally { setChecking(false); }
   };
   const submit = (event: FormEvent) => { event.preventDefault(); if (path.trim()) void choose(path); };
@@ -1166,6 +1190,7 @@ function Projects() {
           <div className="provider-summary"><strong>Models & accounts</strong><small>{modelCatalog?.connectedProviders.length || 0} connected · {modelCatalog?.models.length || 0} models available</small><button className="button quiet compact" onClick={() => useHarnessStore.getState().setView("accounts")}><KeyRound size={14} />Manage accounts</button></div>
         </article>
       </div>
+      {pendingTrust && <ProjectTrustDialog project={pendingTrust} engineReady={engineState === "ready"} providerReady={Boolean(modelCatalog?.connectedProviders.length)} busy={checking} onCancel={() => setPendingTrust(undefined)} onConfirm={() => { setChecking(true); void openInspected(pendingTrust, true).catch((error) => setNotice(String(error))).finally(() => setChecking(false)); }} />}
     </section>
   );
 }
@@ -1245,6 +1270,7 @@ export function App() {
   const projectPath = store.project?.path;
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [switchingProject, setSwitchingProject] = useState(false);
+  const [pendingTrust, setPendingTrust] = useState<ProjectSummary>();
 
   useEffect(() => {
     if (!isDesktop()) return;
@@ -1265,10 +1291,15 @@ export function App() {
           try {
             const project = await harnessBridge.inspectProject(recent.path);
             if (!current) return;
-            state.setProject(project);
-            state.setProjectData(await harnessBridge.projectData(project.path));
-            state.setWayfinderMaps(await harnessBridge.listWayfinderMaps(project.path));
-            state.setWayfinderBlockers(await harnessBridge.listWayfinderBlockers(project.path));
+            if (projectIsTrusted(appState, project.path)) {
+              state.setProject(project);
+              state.setProjectData(await harnessBridge.projectData(project.path));
+              state.setWayfinderMaps(await harnessBridge.listWayfinderMaps(project.path));
+              state.setWayfinderBlockers(await harnessBridge.listWayfinderBlockers(project.path));
+            } else {
+              state.setView("projects");
+              state.setNotice(`${project.name} needs one trust confirmation after this beta upgrade.`);
+            }
           } catch (error) { state.setNotice(`Recent project unavailable: ${String(error)}`); }
         }
       } catch (error) {
@@ -1335,21 +1366,27 @@ export function App() {
     projects: Projects,
   })[store.view], [store.view]);
 
+  const activateProject = async (inspected: ProjectSummary, trust = false) => {
+    const state = trust ? await harnessBridge.trustProject(inspected.path) : store.appState || await harnessBridge.appState();
+    const nextState = { ...state, recentProjects: [{ path: inspected.path, name: inspected.name }, ...state.recentProjects.filter((recent) => recent.path !== inspected.path)].slice(0, 24) };
+    store.setAppState(await harnessBridge.saveAppState(nextState));
+    const data = await harnessBridge.projectData(inspected.path);
+    store.setProject(inspected);
+    store.setProjectData(data);
+    store.setWayfinderMaps(await harnessBridge.listWayfinderMaps(inspected.path));
+    store.setWayfinderBlockers(await harnessBridge.listWayfinderBlockers(inspected.path));
+    store.openConversation(data.runs[0]?.id || 0);
+    setPendingTrust(undefined);
+    setProjectMenuOpen(false);
+    store.setNotice(`${inspected.name} is ready.`);
+  };
   const switchProject = async (path: string) => {
     setSwitchingProject(true);
     try {
       const inspected = await harnessBridge.inspectProject(path);
-      const data = await harnessBridge.projectData(inspected.path);
-      const state = store.appState || await harnessBridge.appState();
-      const nextState = { ...state, recentProjects: [{ path: inspected.path, name: inspected.name }, ...state.recentProjects.filter((recent) => recent.path !== inspected.path)].slice(0, 24) };
-      store.setProject(inspected);
-      store.setProjectData(data);
-      store.setWayfinderMaps(await harnessBridge.listWayfinderMaps(inspected.path));
-      store.setWayfinderBlockers(await harnessBridge.listWayfinderBlockers(inspected.path));
-      store.setAppState(await harnessBridge.saveAppState(nextState));
-      store.openConversation(data.runs[0]?.id || 0);
-      setProjectMenuOpen(false);
-      store.setNotice(`${inspected.name} is ready.`);
+      if (!inspected.gitRoot) throw new Error(`${inspected.path} is not a Git repository. Initialize Git or choose the repository root.`);
+      if (projectIsTrusted(store.appState, inspected.path)) await activateProject(inspected);
+      else setPendingTrust(inspected);
     } catch (error) { store.setNotice(String(error)); } finally { setSwitchingProject(false); }
   };
   const browseProject = async () => {
@@ -1357,6 +1394,9 @@ export function App() {
   };
 
   if (!isDesktop()) return <DesktopRequired />;
+  if (!store.loading && store.appState && (store.appState.onboardingVersion || 0) < ONBOARDING_VERSION) {
+    return <FirstLaunchDisclosure state={store.appState} onContinue={async (state) => { store.setAppState(await harnessBridge.saveAppState(state)); }} />;
+  }
 
   return (
     <div className={`app-shell ${store.reducedMotion ? "reduced-motion" : ""}`}>
@@ -1379,6 +1419,7 @@ export function App() {
       </main>
       {store.notice && <div className="toast" role="status"><span>{store.notice}</span><button aria-label="Dismiss message" onClick={() => store.setNotice("")}><X size={15} /></button></div>}
       {store.commandOpen && <CommandPalette onSwitchProject={switchProject} />}
+      {pendingTrust && <ProjectTrustDialog project={pendingTrust} engineReady={store.engineState === "ready"} providerReady={Boolean(store.modelCatalog?.connectedProviders.length)} busy={switchingProject} onCancel={() => setPendingTrust(undefined)} onConfirm={() => { setSwitchingProject(true); void activateProject(pendingTrust, true).catch((error) => store.setNotice(String(error))).finally(() => setSwitchingProject(false)); }} />}
     </div>
   );
 }

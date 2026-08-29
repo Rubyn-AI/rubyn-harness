@@ -5,7 +5,7 @@ Rubyn Harness is targeting an external macOS beta for trusted local Ruby and Rai
 ## Phases
 
 - [x] **01 — Rails Fixture & Wayfinder Proof:** Prepare a pinned disposable clone of `Rubyn-AI/rubyn-test` and prove a complete Wayfinder-to-integration journey.
-- [ ] **02 — Beta Onboarding & Trust Gate:** Add first-launch trust disclosure, repository confirmation, prerequisite checks, and actionable setup failures.
+- [x] **02 — Beta Onboarding & Trust Gate:** Add first-launch trust disclosure, repository confirmation, prerequisite checks, and actionable setup failures.
 - [ ] **03 — Durable Execution & Recovery:** Prove edit approvals, stop/retry, concurrency, restart, engine failure, and stale-state recovery.
 - [ ] **04 — Safe Review & Integration:** Handle repository drift, conflicts, no-change runs, integration, discard, and cleanup recovery.
 - [ ] **05 — Privacy, Revocation & Diagnostics:** Add credential revocation, local-data removal, secret-safe logs, and sanitized diagnostics.

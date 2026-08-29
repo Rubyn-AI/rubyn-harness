@@ -27,6 +27,7 @@ const native = vi.hoisted(() => ({
   appState: vi.fn(),
   saveAppState: vi.fn(),
   inspectProject: vi.fn(),
+  trustProject: vi.fn(),
   projectData: vi.fn(),
   gitStatus: vi.fn(),
   launchPrompt: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock("./bridge", async () => {
       appState: native.appState,
       saveAppState: native.saveAppState,
       inspectProject: native.inspectProject,
+      trustProject: native.trustProject,
       projectData: native.projectData,
       gitStatus: native.gitStatus,
       launchPrompt: native.launchPrompt,
@@ -122,6 +124,8 @@ const emptyState: LocalAppState = {
     yoloEnabled: false,
   },
   recentProjects: [],
+  onboardingVersion: 1,
+  trustedProjectPaths: [project.path],
 };
 
 const connectedModel = { provider: "minimax", model: "MiniMax-M3", tier: "top" };
@@ -246,6 +250,10 @@ beforeEach(() => {
   native.chooseAttachments.mockResolvedValue([]);
   native.resolveEditApproval.mockResolvedValue({});
   native.saveAppState.mockImplementation(async (state: LocalAppState) => state);
+  native.trustProject.mockImplementation(async (path: string) => ({
+    ...emptyState,
+    trustedProjectPaths: [path, ...(emptyState.trustedProjectPaths || []).filter((trusted) => trusted !== path)],
+  }));
   native.listBundledSkills.mockResolvedValue([]);
   native.listProjectSkills.mockResolvedValue([]);
   native.readSkill.mockResolvedValue({ path: "rails.md", content: "# Rails\n" });
@@ -658,6 +666,66 @@ describe("native product flow", () => {
     await waitFor(() => expect(native.chooseProjectFolder).toHaveBeenCalledOnce());
     expect(native.inspectProject).toHaveBeenCalledWith(project.path);
     expect(await screen.findByRole("heading", { name: "What should Rubyn work on?" })).toBeInTheDocument();
+  });
+
+  it("requires and persists the versioned first-launch trust disclosure", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, onboardingVersion: 0, trustedProjectPaths: [] });
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Your repository stays under your control." })).toBeInTheDocument();
+    expect(screen.getByText("Isolated by default")).toBeInTheDocument();
+    expect(screen.getByText("You approve repository edits")).toBeInTheDocument();
+    expect(screen.getByText("Models require your account")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /I understand/ }));
+
+    await waitFor(() => expect(native.saveAppState).toHaveBeenCalledWith(expect.objectContaining({ onboardingVersion: 1 })));
+    expect(await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" })).toBeInTheDocument();
+  });
+
+  it("inspects an untrusted repository without opening it when confirmation is cancelled", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, trustedProjectPaths: [] });
+    native.chooseProjectFolder.mockResolvedValue(project.path);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" });
+    fireEvent.click(screen.getByRole("button", { name: /^choose project$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose project folder" }));
+
+    expect(await screen.findByRole("heading", { name: "Trust ledger?" })).toBeInTheDocument();
+    expect(screen.getAllByText(project.path)).toHaveLength(2);
+    expect(screen.getByText("RUBYN.md detected")).toBeInTheDocument();
+    expect(native.projectData).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("heading", { name: "Trust ledger?" })).not.toBeInTheDocument();
+    expect(native.trustProject).not.toHaveBeenCalled();
+    expect(native.projectData).not.toHaveBeenCalled();
+  });
+
+  it("persists canonical repository trust before loading project state", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, trustedProjectPaths: [] });
+    native.chooseProjectFolder.mockResolvedValue(project.path);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" });
+    fireEvent.click(screen.getByRole("button", { name: /^choose project$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose project folder" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Trust and open" }));
+
+    await waitFor(() => expect(native.trustProject).toHaveBeenCalledWith(project.path));
+    expect(native.trustProject.mock.invocationCallOrder[0]).toBeLessThan(native.projectData.mock.invocationCallOrder[0]);
+    expect(await screen.findByRole("heading", { name: "What should Rubyn work on?" })).toBeInTheDocument();
+  });
+
+  it("rejects a selected folder that is not a Git repository before trust", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, trustedProjectPaths: [] });
+    native.chooseProjectFolder.mockResolvedValue("/work/not-git");
+    native.inspectProject.mockResolvedValue({ ...project, path: "/work/not-git", name: "not-git", gitRoot: undefined });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" });
+    fireEvent.click(screen.getByRole("button", { name: /^choose project$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose project folder" }));
+
+    expect(await screen.findByText(/not a Git repository/)).toBeInTheDocument();
+    expect(native.trustProject).not.toHaveBeenCalled();
+    expect(native.projectData).not.toHaveBeenCalled();
   });
 
   it("attaches a selected image to a new Rubyn conversation", async () => {

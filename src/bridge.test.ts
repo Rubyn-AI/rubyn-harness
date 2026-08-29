@@ -165,6 +165,7 @@ describe("desktop bridge contract", () => {
     await harnessBridge.appState();
     await harnessBridge.saveAppState(appState);
     await harnessBridge.inspectProject("/repo");
+    await harnessBridge.trustProject("/repo");
     await harnessBridge.projectData("/repo");
     await harnessBridge.createTodo("/repo", "Confirm tenant boundary");
     await harnessBridge.updateTodo(7, "doing");
@@ -189,6 +190,7 @@ describe("desktop bridge contract", () => {
       ["get_app_state", undefined],
       ["save_app_state", { state: appState }],
       ["inspect_project", { projectPath: "/repo" }],
+      ["trust_project", { projectPath: "/repo" }],
       ["get_project_data", { projectPath: "/repo" }],
       ["create_project_todo", { request: { projectPath: "/repo", title: "Confirm tenant boundary", owner: "You", status: "queued" } }],
       ["update_project_todo", { request: { id: 7, status: "doing" } }],

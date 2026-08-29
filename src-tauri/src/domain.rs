@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const MAX_RECENT_PROJECTS: usize = 24;
+pub const MAX_TRUSTED_PROJECTS: usize = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -32,9 +33,12 @@ pub struct RecentProject {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct LocalAppState {
     pub preferences: AppPreferences,
     pub recent_projects: Vec<RecentProject>,
+    pub onboarding_version: u32,
+    pub trusted_project_paths: Vec<String>,
 }
 
 impl LocalAppState {
@@ -47,7 +51,33 @@ impl LocalAppState {
         self.recent_projects
             .retain(|project| !project.path.trim().is_empty());
         self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+        let mut trusted = Vec::new();
+        for path in self.trusted_project_paths {
+            let path = path.trim().to_owned();
+            if !path.is_empty() && !trusted.contains(&path) {
+                trusted.push(path);
+            }
+            if trusted.len() == MAX_TRUSTED_PROJECTS {
+                break;
+            }
+        }
+        self.trusted_project_paths = trusted;
         self
+    }
+
+    pub fn trusts_project(&self, path: &Path) -> bool {
+        let canonical = path.to_string_lossy();
+        self.trusted_project_paths
+            .iter()
+            .any(|trusted| trusted == canonical.as_ref())
+    }
+
+    pub fn trust_project(&mut self, path: &Path) {
+        let canonical = path.to_string_lossy().into_owned();
+        self.trusted_project_paths
+            .retain(|trusted| trusted != &canonical);
+        self.trusted_project_paths.insert(0, canonical);
+        self.trusted_project_paths.truncate(MAX_TRUSTED_PROJECTS);
     }
 
     pub fn record_project(&mut self, path: &Path) {
@@ -729,10 +759,46 @@ mod tests {
                 yolo_enabled: false,
             },
             recent_projects: Vec::new(),
+            onboarding_version: 0,
+            trusted_project_paths: vec![
+                " /tmp/one ".into(),
+                "/tmp/one".into(),
+                "".into(),
+                "/tmp/two".into(),
+            ],
         }
         .normalized();
 
         assert_eq!(state.preferences.default_model, "rubyn");
         assert_eq!(state.preferences.parallel_limit, 12);
+        assert_eq!(state.trusted_project_paths, vec!["/tmp/one", "/tmp/two"]);
+    }
+
+    #[test]
+    fn legacy_app_state_defaults_to_unacknowledged_and_untrusted() {
+        let state: LocalAppState = serde_json::from_value(serde_json::json!({
+            "preferences": {
+                "defaultModel": "rubyn",
+                "parallelLimit": 3,
+                "autoCompaction": true,
+                "yoloEnabled": false
+            },
+            "recentProjects": []
+        }))
+        .expect("legacy state");
+
+        assert_eq!(state.onboarding_version, 0);
+        assert!(state.trusted_project_paths.is_empty());
+    }
+
+    #[test]
+    fn trusts_only_the_exact_canonical_project_path() {
+        let mut state = LocalAppState::default();
+        state.trust_project(Path::new("/tmp/example"));
+        state.trust_project(Path::new("/tmp/example"));
+
+        assert!(state.trusts_project(Path::new("/tmp/example")));
+        assert!(!state.trusts_project(Path::new("/tmp/example-other")));
+        assert_eq!(state.trusted_project_paths, vec!["/tmp/example"]);
     }
 }

@@ -249,7 +249,7 @@ fn ensure_agent_safe_project(project: &Path) -> Result<(), ServiceError> {
     for risky in [".mcp.json", ".rubyn-code/settings.json"] {
         if project.join(risky).exists() {
             return Err(ServiceError::UntrustedProject(format!(
-                "{risky} can execute project-defined commands; trust onboarding is not implemented"
+                "{risky} can execute project-defined commands and is not allowed in the first beta"
             )));
         }
     }

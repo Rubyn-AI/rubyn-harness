@@ -29,6 +29,8 @@ export interface LocalAppState {
     yoloEnabled: boolean;
   };
   recentProjects: RecentProject[];
+  onboardingVersion?: number;
+  trustedProjectPaths?: string[];
 }
 
 export interface ProjectRecord {
@@ -330,6 +332,7 @@ export const harnessBridge = {
   appState: () => desktopInvoke<LocalAppState>("get_app_state"),
   saveAppState: (state: LocalAppState) => desktopInvoke<LocalAppState>("save_app_state", { state }),
   inspectProject: (projectPath: string) => desktopInvoke<ProjectSummary>("inspect_project", { projectPath }),
+  trustProject: (projectPath: string) => desktopInvoke<LocalAppState>("trust_project", { projectPath }),
   projectData: (projectPath: string) => desktopInvoke<ProjectData>("get_project_data", { projectPath }),
   gitStatus: (projectPath: string) => desktopInvoke<GitStatus>("get_git_status", { projectPath }),
   launchPrompt: (projectPath: string, prompt: string, attachments: AttachmentSelection[] = [], model?: ModelOption) => desktopInvoke<EngineSession>("launch_engine", {
