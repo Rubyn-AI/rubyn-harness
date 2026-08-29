@@ -130,6 +130,7 @@ export interface EditApprovalRecord {
   path: string;
   content: string;
   editType: string;
+  approvalKind: "fileChange" | "commandExecution";
   status: "pending" | "approved" | "denied" | "expired";
   requestedAt: number;
   decidedAt?: number;

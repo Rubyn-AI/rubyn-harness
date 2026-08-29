@@ -152,9 +152,14 @@ impl StateRepository {
         repository.migrate_conversation_metadata();
         repository.refresh_task_readiness();
         let _ = repository.recover_interrupted_runs();
+        let scrubbed_provider_diagnostics = repository.scrub_provider_diagnostics();
         let _ = restore_primary;
         // Opening is also the migration boundary; persist normalized columns and statuses.
         repository.save()?;
+        if scrubbed_provider_diagnostics {
+            fs::copy(&repository.file, &repository.backup)?;
+            File::open(&repository.backup)?.sync_all()?;
+        }
         Ok(repository)
     }
 
@@ -974,7 +979,10 @@ impl StateRepository {
                 raw: event.raw.clone(),
                 created_at: event.created_at,
             });
-            if matches!(event.kind.as_str(), "file/edit" | "file/create") {
+            if matches!(
+                event.kind.as_str(),
+                "file/edit" | "file/create" | "command/approval"
+            ) {
                 if let (Some(edit_id), Some(path), Some(content)) = (
                     event
                         .payload
@@ -1008,6 +1016,12 @@ impl StateRepository {
                                 } else {
                                     "modify"
                                 })
+                                .to_owned(),
+                            approval_kind: event
+                                .payload
+                                .get("approvalKind")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("fileChange")
                                 .to_owned(),
                             status: "pending".into(),
                             requested_at: event.created_at,
@@ -1078,8 +1092,8 @@ impl StateRepository {
         let approval = approval.clone();
         self.push_system_event(
             run_id,
-            "edit/decision",
-            serde_json::json!({"editId": edit_id, "accepted": accepted, "path": approval.path}),
+            "approval/decision",
+            serde_json::json!({"editId": edit_id, "accepted": accepted, "path": approval.path, "approvalKind": approval.approval_kind}),
         );
         self.save()?;
         Ok(approval)
@@ -2892,7 +2906,7 @@ impl StateRepository {
             run_id,
             protocol_sequence: 0,
             kind: kind.into(),
-            raw: payload.to_string(),
+            raw: String::new(),
             payload,
             created_at: timestamp(),
         });
@@ -2946,6 +2960,35 @@ impl StateRepository {
             );
         }
         !interrupted.is_empty() || !interrupted_integrations.is_empty()
+    }
+
+    fn scrub_provider_diagnostics(&mut self) -> bool {
+        let mut changed = false;
+        for run in &mut self.database.runs {
+            if !run.stdout.is_empty() || !run.stderr.is_empty() {
+                run.stdout.clear();
+                run.stderr.clear();
+                changed = true;
+            }
+        }
+        for event in &mut self.database.events {
+            if !event.raw.is_empty() {
+                event.raw.clear();
+                changed = true;
+            }
+            let provider_diagnostic = event.kind == "codex/event"
+                || event.kind == "process/stderr"
+                || event.kind.starts_with("mcpServer/")
+                || event.kind.starts_with("account/")
+                || event.kind.starts_with("remoteControl/")
+                || event.kind.starts_with("thread/")
+                || event.kind.starts_with("turn/");
+            if provider_diagnostic && event.payload != serde_json::json!({"withheld": true}) {
+                event.payload = serde_json::json!({"withheld": true});
+                changed = true;
+            }
+        }
+        changed
     }
 
     fn repair_counters(&mut self) {
@@ -3469,6 +3512,14 @@ mod tests {
                     raw: "create-frame".into(),
                     created_at: timestamp(),
                 },
+                EngineEvent {
+                    run_id: run.id,
+                    sequence: 9,
+                    kind: "command/approval".into(),
+                    payload: serde_json::json!({"editId":"command-9","path":"/work/example-app","content":"bundle exec rails test","type":"command","approvalKind":"commandExecution"}),
+                    raw: "command-frame".into(),
+                    created_at: timestamp(),
+                },
             ])
             .unwrap();
 
@@ -3480,12 +3531,12 @@ mod tests {
             .events(run.id, 0)
             .unwrap()
             .iter()
-            .any(|event| event.kind == "edit/decision" && event.payload["accepted"] == true));
+            .any(|event| event.kind == "approval/decision" && event.payload["accepted"] == true));
         drop(repository);
 
         let reopened = StateRepository::open(&directory).unwrap();
         let approvals = reopened.project_data(&project_path).unwrap().approvals;
-        assert_eq!(approvals.len(), 2);
+        assert_eq!(approvals.len(), 3);
         assert_eq!(
             approvals
                 .iter()
@@ -3502,6 +3553,72 @@ mod tests {
                 .status,
             "expired"
         );
+        let command = approvals
+            .iter()
+            .find(|item| item.edit_id == "command-9")
+            .unwrap();
+        assert_eq!(command.approval_kind, "commandExecution");
+        assert_eq!(command.status, "expired");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn legacy_provider_diagnostics_are_scrubbed_from_primary_and_backup_state() {
+        let directory = test_directory("diagnostic-scrub");
+        let project_path = directory.join("example-app");
+        let worktree_path = directory.join("worktrees/run-1/workspace");
+        fs::create_dir_all(&project_path).unwrap();
+        fs::create_dir_all(&worktree_path).unwrap();
+        let mut repository = StateRepository::open(&directory).unwrap();
+        let run = repository
+            .allocate_run(
+                &project_path,
+                &worktree_path,
+                "abc123".into(),
+                "Inspect diagnostics".into(),
+                "prompt".into(),
+            )
+            .unwrap();
+        repository
+            .sync_run(
+                run.id,
+                false,
+                "failed",
+                None,
+                "provider stdout with credential-shaped data",
+                "provider stderr with credential-shaped data",
+            )
+            .unwrap();
+        repository
+            .append_engine_events(&[EngineEvent {
+                run_id: run.id,
+                sequence: 7,
+                kind: "mcpServer/startupStatus/updated".into(),
+                payload: serde_json::json!({"error":"credential-shaped data"}),
+                raw: "raw credential-shaped data".into(),
+                created_at: timestamp(),
+            }])
+            .unwrap();
+        drop(repository);
+
+        let reopened = StateRepository::open(&directory).unwrap();
+        let recovered = reopened.run(run.id).unwrap();
+        assert!(recovered.stdout.is_empty());
+        assert!(recovered.stderr.is_empty());
+        let diagnostic = reopened
+            .events(run.id, 0)
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "mcpServer/startupStatus/updated")
+            .unwrap();
+        assert!(diagnostic.raw.is_empty());
+        assert_eq!(diagnostic.payload, serde_json::json!({"withheld": true}));
+        drop(reopened);
+
+        for file in ["harness-database.json", "harness-database.backup.json"] {
+            let contents = fs::read_to_string(directory.join(file)).unwrap();
+            assert!(!contents.contains("credential-shaped data"));
+        }
         fs::remove_dir_all(directory).unwrap();
     }
 

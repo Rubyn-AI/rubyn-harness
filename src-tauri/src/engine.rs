@@ -96,8 +96,8 @@ pub enum EngineError {
     Launch(#[from] std::io::Error),
     #[error("No managed Rubyn Code session exists with id {0}")]
     UnknownSession(u64),
-    #[error("Parallel run limit reached; wait for one of the 3 active runs to finish")]
-    AtCapacity,
+    #[error("Parallel run limit reached; wait for one of the {0} active runs to finish")]
+    AtCapacity(usize),
     #[error("Run {0} is no longer an active conversation")]
     ConversationClosed(u64),
     #[error("Run {0} must restart to switch model backends")]
@@ -214,13 +214,13 @@ impl ProtocolState {
 const MAX_CAPTURE_BYTES: usize = 1_048_576;
 
 impl EngineSupervisor {
-    pub fn at_capacity(&mut self) -> bool {
+    pub fn at_capacity(&mut self, limit: usize) -> bool {
         self.refresh_statuses();
         self.children
             .values()
             .filter(|engine| engine.running)
             .count()
-            >= 3
+            >= limit.max(1)
     }
 
     pub fn launch(
@@ -229,9 +229,10 @@ impl EngineSupervisor {
         location: EngineLocation,
         request: LaunchEngineRequest,
         project: &Path,
+        parallel_limit: usize,
     ) -> Result<EngineSession, EngineError> {
-        if self.at_capacity() {
-            return Err(EngineError::AtCapacity);
+        if self.at_capacity(parallel_limit) {
+            return Err(EngineError::AtCapacity(parallel_limit.max(1)));
         }
         if self.children.get(&id).is_some_and(|engine| engine.running) {
             return Err(EngineError::Launch(std::io::Error::new(
@@ -912,7 +913,6 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
     let output = Arc::new(Mutex::new(String::new()));
     let protocol = Arc::new(Mutex::new(ProtocolState::default()));
     if let Some(stream) = stream {
-        let captured = Arc::clone(&output);
         let state = Arc::clone(&protocol);
         let writer = Arc::clone(&stdin);
         thread::spawn(move || {
@@ -950,7 +950,6 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
             );
             let mut final_text = String::new();
             for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                append_capture(&captured, &line);
                 let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
                     continue;
                 };
@@ -1040,6 +1039,20 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                     }
                     continue;
                 }
+                if method == Some("item/commandExecution/requestApproval") {
+                    if let Some(request_id) = message.get("id") {
+                        let payload = codex_command_approval_payload(request_id, &params);
+                        push_event(
+                            &events,
+                            &event_sequence,
+                            run_id,
+                            "command/approval",
+                            payload,
+                            &line,
+                        );
+                    }
+                    continue;
+                }
                 if method == Some("item/tool/call") {
                     let tool = params
                         .get("tool")
@@ -1079,6 +1092,8 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                             object.insert("requestId".into(), request_id.clone());
                         }
                     }
+                    push_event(&events, &event_sequence, run_id, "ide/askUser", params, "");
+                    continue;
                 }
                 match method {
                     Some("item/agentMessage/delta") => {
@@ -1157,6 +1172,18 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                             );
                         }
                     }
+                    Some("thread/tokenUsage/updated") => {
+                        if let Some(payload) = codex_token_usage_payload(&params) {
+                            push_event(
+                                &events,
+                                &event_sequence,
+                                run_id,
+                                "token/usage",
+                                payload,
+                                "",
+                            );
+                        }
+                    }
                     Some("turn/completed") => {
                         let turn_status = params
                             .pointer("/turn/status")
@@ -1191,14 +1218,7 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                             }
                         });
                     }
-                    _ => push_event(
-                        &events,
-                        &event_sequence,
-                        run_id,
-                        method.unwrap_or("codex/event"),
-                        params,
-                        &line,
-                    ),
+                    _ => {}
                 }
             }
         });
@@ -1354,8 +1374,60 @@ fn codex_edit_approval_payload(
         } else {
             content
         },
-        "type": if creates_only { "create" } else { "modify" }
+        "type": if creates_only { "create" } else { "modify" },
+        "approvalKind": "fileChange"
     })
+}
+
+fn codex_command_approval_payload(
+    request_id: &serde_json::Value,
+    params: &serde_json::Value,
+) -> serde_json::Value {
+    let item_id = params
+        .get("itemId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let approval_id = params.get("approvalId").cloned().unwrap_or_default();
+    let command = params
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Command details were not supplied by Codex.");
+    let cwd = params
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Working directory was not supplied by Codex.");
+    let reason = params
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .filter(|reason| !reason.trim().is_empty());
+    let content = match reason {
+        Some(reason) => format!("{command}\n\nReason: {reason}"),
+        None => command.to_owned(),
+    };
+    serde_json::json!({
+        "editId": serde_json::json!({
+            "requestId": request_id,
+            "itemId": item_id,
+            "approvalId": approval_id
+        }).to_string(),
+        "path": cwd,
+        "content": content,
+        "type": "command",
+        "approvalKind": "commandExecution"
+    })
+}
+
+fn codex_token_usage_payload(params: &serde_json::Value) -> Option<serde_json::Value> {
+    let total = params.pointer("/tokenUsage/total")?;
+    let number = |key: &str| total.get(key).and_then(serde_json::Value::as_u64);
+    Some(serde_json::json!({
+        "inputTokens": number("inputTokens")?,
+        "cachedInputTokens": number("cachedInputTokens").unwrap_or(0),
+        "outputTokens": number("outputTokens")?,
+        "reasoningOutputTokens": number("reasoningOutputTokens").unwrap_or(0),
+        "totalTokens": number("totalTokens")?,
+        "source": "provider"
+    }))
 }
 
 /// Runs a single JSON-RPC request against Rubyn's IDE transport. This keeps
@@ -1662,26 +1734,27 @@ fn capture<R: Read + Send + 'static>(
     if let Some(mut stream) = stream {
         let captured = Arc::clone(&output);
         thread::spawn(move || {
+            let mut reported = false;
             let mut buffer = [0_u8; 4096];
             while let Ok(count) = stream.read(&mut buffer) {
                 if count == 0 {
                     break;
                 }
-                let text = String::from_utf8_lossy(&buffer[..count]).into_owned();
-                push_event(
-                    &events,
-                    &event_sequence,
-                    run_id,
-                    "process/stderr",
-                    serde_json::json!({"text": text}),
-                    &text,
-                );
-                if let Ok(mut value) = captured.lock() {
-                    let remaining = MAX_CAPTURE_BYTES.saturating_sub(value.len());
-                    if remaining == 0 {
-                        continue;
+                if !reported {
+                    let summary = "Engine process emitted diagnostic output; details were withheld to protect local credentials.";
+                    push_event(
+                        &events,
+                        &event_sequence,
+                        run_id,
+                        "process/stderr",
+                        serde_json::json!({"text": summary}),
+                        "",
+                    );
+                    if let Ok(mut value) = captured.lock() {
+                        value.push_str(summary);
+                        value.push('\n');
                     }
-                    value.push_str(&String::from_utf8_lossy(&buffer[..count.min(remaining)]));
+                    reported = true;
                 }
             }
         });
@@ -1695,14 +1768,14 @@ fn push_event(
     run_id: u64,
     kind: &str,
     payload: serde_json::Value,
-    raw: &str,
+    _raw: &str,
 ) {
     let event = EngineEvent {
         run_id,
         sequence: sequence.fetch_add(1, Ordering::Relaxed),
         kind: kind.to_owned(),
         payload,
-        raw: raw.chars().take(65_536).collect(),
+        raw: String::new(),
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1930,6 +2003,88 @@ mod tests {
         assert!(payload["content"]
             .as_str()
             .is_some_and(|content| content.contains("posts_controller_test.rb")));
+    }
+
+    #[test]
+    fn normalizes_codex_command_approval_without_broadening_authority() {
+        let request_id = serde_json::json!(73);
+        let params = serde_json::json!({
+            "threadId": "thread-3",
+            "turnId": "turn-4",
+            "itemId": "command-9",
+            "approvalId": "approval-12",
+            "command": "bundle exec rails test",
+            "cwd": "/work/example-app",
+            "reason": "Run the repository test suite",
+            "availableDecisions": ["accept", "acceptForSession", "decline"]
+        });
+
+        let payload = codex_command_approval_payload(&request_id, &params);
+        let identity = serde_json::from_str::<serde_json::Value>(
+            payload["editId"].as_str().expect("encoded identity"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            identity,
+            serde_json::json!({
+                "requestId": 73,
+                "itemId": "command-9",
+                "approvalId": "approval-12"
+            })
+        );
+        assert_eq!(payload["approvalKind"], "commandExecution");
+        assert_eq!(payload["type"], "command");
+        assert_eq!(payload["path"], "/work/example-app");
+        assert_eq!(
+            payload["content"],
+            "bundle exec rails test\n\nReason: Run the repository test suite"
+        );
+        assert!(payload.get("availableDecisions").is_none());
+    }
+
+    #[test]
+    fn provider_frames_are_not_written_to_the_audit_log() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sequence = Arc::new(AtomicU64::new(1));
+
+        push_event(
+            &events,
+            &sequence,
+            3,
+            "agent/status",
+            serde_json::json!({"status":"done"}),
+            "provider-frame-with-local-environment",
+        );
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].raw.is_empty());
+        assert!(!events[0].raw.contains("local-environment"));
+    }
+
+    #[test]
+    fn normalizes_only_numeric_provider_token_usage() {
+        let payload = codex_token_usage_payload(&serde_json::json!({
+            "threadId": "thread-private",
+            "tokenUsage": {
+                "total": {
+                    "inputTokens": 40_000,
+                    "cachedInputTokens": 30_000,
+                    "outputTokens": 1_200,
+                    "reasoningOutputTokens": 200,
+                    "totalTokens": 41_200,
+                    "accountMetadata": "must-not-be-retained"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(payload["inputTokens"], 40_000);
+        assert_eq!(payload["cachedInputTokens"], 30_000);
+        assert_eq!(payload["source"], "provider");
+        assert!(payload.get("threadId").is_none());
+        assert!(payload.get("accountMetadata").is_none());
     }
 
     #[test]

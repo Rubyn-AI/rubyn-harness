@@ -429,9 +429,15 @@ pub struct EditApprovalRecord {
     pub path: String,
     pub content: String,
     pub edit_type: String,
+    #[serde(default = "default_approval_kind")]
+    pub approval_kind: String,
     pub status: String,
     pub requested_at: u64,
     pub decided_at: Option<u64>,
+}
+
+fn default_approval_kind() -> String {
+    "fileChange".into()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -789,6 +795,24 @@ mod tests {
 
         assert_eq!(state.onboarding_version, 0);
         assert!(state.trusted_project_paths.is_empty());
+    }
+
+    #[test]
+    fn legacy_approval_defaults_to_file_change_kind() {
+        let approval: EditApprovalRecord = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "runId": 2,
+            "editId": "edit-3",
+            "path": "app/models/user.rb",
+            "content": "diff",
+            "editType": "modify",
+            "status": "pending",
+            "requestedAt": 4,
+            "decidedAt": null
+        }))
+        .unwrap();
+
+        assert_eq!(approval.approval_kind, "fileChange");
     }
 
     #[test]

@@ -318,11 +318,17 @@ fn launch_engine(
     let attachment_summaries = attachment_summaries(&request.attachments);
     let project = services::canonical_project(&request.project_path).map_err(to_command_error)?;
     ensure_project_trusted(&app, &runtime, &project)?;
+    let parallel_limit = state_repository(&app, &runtime)?
+        .as_ref()
+        .expect("state repository is initialized")
+        .snapshot()
+        .preferences
+        .parallel_limit as usize;
     let mut engines = runtime
         .engines
         .lock()
         .map_err(|_| "Engine supervisor is unavailable".to_owned())?;
-    if engines.at_capacity() {
+    if engines.at_capacity(parallel_limit) {
         return Err("Parallel run limit reached; wait for an active run to finish".to_owned());
     }
     let runs_root = app
@@ -366,7 +372,8 @@ fn launch_engine(
             }
         }
     };
-    let session = match engines.launch(run.id, location, request, &allocation.path) {
+    let session = match engines.launch(run.id, location, request, &allocation.path, parallel_limit)
+    {
         Ok(session) => session,
         Err(error) => {
             let _ = services::remove_isolated_worktree(&project, &allocation.path, &runs_root);
@@ -448,10 +455,10 @@ fn resolve_edit_approval(
     request: ResolveEditApprovalRequest,
 ) -> CommandResult<EditApprovalRecord> {
     sync_runtime_state(&app, &runtime)?;
-    let approval = state_repository(&app, &runtime)?
-        .as_mut()
+    state_repository(&app, &runtime)?
+        .as_ref()
         .expect("state repository is initialized")
-        .resolve_edit_approval(request.run_id, &request.edit_id, request.accepted)
+        .pending_edit_approval(request.run_id, &request.edit_id)
         .map_err(to_command_error)?;
     runtime
         .engines
@@ -459,7 +466,11 @@ fn resolve_edit_approval(
         .map_err(|_| "Engine supervisor is unavailable".to_owned())?
         .resolve_edit(request.run_id, &request.edit_id, request.accepted)
         .map_err(to_command_error)?;
-    Ok(approval)
+    state_repository(&app, &runtime)?
+        .as_mut()
+        .expect("state repository is initialized")
+        .resolve_edit_approval(request.run_id, &request.edit_id, request.accepted)
+        .map_err(to_command_error)
 }
 
 #[tauri::command]
@@ -556,11 +567,23 @@ fn send_run_message(
             resume_session: true,
             backend_thread_id,
         };
+        let parallel_limit = state_repository(&app, &runtime)?
+            .as_ref()
+            .expect("state repository is initialized")
+            .snapshot()
+            .preferences
+            .parallel_limit as usize;
         let session = runtime
             .engines
             .lock()
             .map_err(|_| "Engine supervisor is unavailable".to_owned())?
-            .launch(request.run_id, location, launch_request, &worktree)
+            .launch(
+                request.run_id,
+                location,
+                launch_request,
+                &worktree,
+                parallel_limit,
+            )
             .map_err(to_command_error)?;
         state_repository(&app, &runtime)?
             .as_mut()

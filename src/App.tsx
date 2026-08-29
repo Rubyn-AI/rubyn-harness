@@ -554,6 +554,7 @@ function Runs() {
   const followedConversationRef = useRef<number | undefined>(undefined);
   const followLatestMessageRef = useRef(true);
   const activeCount = globalRuns.filter((run) => run.running).length;
+  const parallelLimit = appState?.preferences.parallelLimit || 3;
   const readyTasks = projectData?.tasks.filter((task) => task.status === projectData.columns[0]?.key && task.ready) || [];
   const conversations = useMemo(() => [...(projectData?.runs || [])]
     .filter((conversation) => !conversation.archivedAt)
@@ -562,10 +563,11 @@ function Runs() {
   const selected = composingNew ? undefined : conversations.find((run) => run.id === activeConversationId) || conversations[0];
   const selectedId = selected?.id;
   const selectedEvents = selected ? runEvents[selected.id] || [] : [];
+  const tokenUsage = latestTokenUsage(selectedEvents);
   const pendingApprovals = selected ? projectData?.approvals.filter((approval) => approval.runId === selected.id && approval.status === "pending") || [] : [];
   const message = selected ? conversationDrafts[selected.id] || "" : "";
   const replyAttachments = selected ? conversationAttachments[selected.id] || [] : [];
-  const fanoutCapacity = Math.max(0, 3 - activeCount);
+  const fanoutCapacity = Math.max(0, parallelLimit - activeCount);
   const hasPersistedInitialMessage = Boolean(selected && selectedEvents.some((item) => item.kind === "chat/user" && eventPayload(item, "text") === selected.prompt));
   const modelKey = currentModelPreference(appState?.preferences.defaultModel);
   const connectedProviders = new Set(modelCatalog?.connectedProviders || []);
@@ -624,7 +626,7 @@ function Runs() {
 
   const launch = async (event: FormEvent) => {
     event.preventDefault();
-    if ((!newConversationDraft.trim() && !newConversationAttachments.length) || activeCount >= 3 || engineState !== "ready" || !selectedModel) return;
+    if ((!newConversationDraft.trim() && !newConversationAttachments.length) || activeCount >= parallelLimit || engineState !== "ready" || !selectedModel) return;
     setLaunching(true);
     try {
       const attachedTaskId = newConversationTaskId;
@@ -665,7 +667,10 @@ function Runs() {
     setResolvingApproval(approval.editId);
     try {
       await harnessBridge.resolveEditApproval(approval.runId, approval.editId, accepted);
-      setNotice(accepted ? `Approved ${approval.path}. Rubyn can apply the edit.` : `Denied ${approval.path}. Rubyn will continue without it.`);
+      const command = approval.approvalKind === "commandExecution";
+      setNotice(accepted
+        ? command ? `Approved the displayed command in ${approval.path}.` : `Approved ${approval.path}. Rubyn can apply the edit.`
+        : command ? `Denied the displayed command. Rubyn will continue without running it.` : `Denied ${approval.path}. Rubyn will continue without it.`);
       await refresh();
     } catch (error) {
       setNotice(String(error));
@@ -675,7 +680,7 @@ function Runs() {
   };
   const reply = async (event: FormEvent) => {
     event.preventDefault();
-    if (!selected || !selectedModel || (!message.trim() && !replyAttachments.length) || (!selected.running && activeCount >= 3)) return;
+    if (!selected || !selectedModel || (!message.trim() && !replyAttachments.length) || (!selected.running && activeCount >= parallelLimit)) return;
     const next = message.trim() || "Review the attached file or image.";
     followLatestMessageRef.current = true;
     setConversationDraft(selected.id, "");
@@ -724,15 +729,15 @@ function Runs() {
 
   return (
     <section>
-      <div className="talk-utility">{modelCatalog?.models.length ? <label className="model-picker">Model<select aria-label="Model for new conversations" value={selectedModel ? `${selectedModel.provider}::${selectedModel.model}` : ""} onChange={(event) => void chooseModel(event.target.value)}><option value="" disabled>Connect a model provider</option>{modelCatalog.models.map((item) => <option key={`${item.provider}::${item.model}`} value={`${item.provider}::${item.model}`} disabled={!connectedProviders.has(item.provider)}>{item.provider} / {item.model}{connectedProviders.has(item.provider) ? "" : " · connect first"}</option>)}</select></label> : null}{readyTasks.length > 0 && <button className="button quiet compact" onClick={() => setFanoutPlanning((open) => !open)} disabled={launching || activeCount >= 3 || engineState !== "ready" || !selectedModel}><Layers3 size={15} />Plan fan-out</button>}<span>{activeCount}/3 live</span></div>
+      <div className="talk-utility">{modelCatalog?.models.length ? <label className="model-picker">Model<select aria-label="Model for new conversations" value={selectedModel ? `${selectedModel.provider}::${selectedModel.model}` : ""} onChange={(event) => void chooseModel(event.target.value)}><option value="" disabled>Connect a model provider</option>{modelCatalog.models.map((item) => <option key={`${item.provider}::${item.model}`} value={`${item.provider}::${item.model}`} disabled={!connectedProviders.has(item.provider)}>{item.provider} / {item.model}{connectedProviders.has(item.provider) ? "" : " · connect first"}</option>)}</select></label> : null}{readyTasks.length > 0 && <button className="button quiet compact" onClick={() => setFanoutPlanning((open) => !open)} disabled={launching || activeCount >= parallelLimit || engineState !== "ready" || !selectedModel}><Layers3 size={15} />Plan fan-out</button>}<span>{activeCount}/{parallelLimit} live</span></div>
       {fanoutPlanning && <div className="fanout-preflight"><div><strong>Choose parallel tasks</strong><small>{fanoutCapacity} slot{fanoutCapacity === 1 ? "" : "s"} available · isolated worktrees · Rubyn Code · provider cost unavailable</small></div><div className="fanout-choices">{readyTasks.map((task) => { const checked = fanoutSelected.includes(task.id); const full = !checked && fanoutSelected.length >= fanoutCapacity; return <label key={task.id}><input type="checkbox" checked={checked} disabled={full} onChange={() => setFanoutSelected((current) => checked ? current.filter((id) => id !== task.id) : [...current, task.id])} /><span><strong>{task.title}</strong><small>{task.dependsOn.length ? "Dependencies satisfied" : "No dependencies"}</small></span></label>; })}</div><footer><span>No tasks launch until you confirm this exact selection.</span><div><button className="button quiet compact" onClick={() => setFanoutPlanning(false)}>Cancel</button><button className="button primary compact" onClick={() => void fanOut()} disabled={!fanoutSelected.length || launching}>Launch {fanoutSelected.length || "selected"}</button></div></footer></div>}
       <div className="chat-layout conversation-shell">
         {selected ? <article className="chat-thread">
-          <header><div><span className={`pulse ${statusOf(selected)}`} /><strong>{conversationTitle(selected, 80)}</strong><small>Conversation · {runLabel(selected)}{selected.background ? " · background task" : ""}</small></div><div>{turnActive ? <button className="button danger compact" onClick={() => void cancel(selected)}><CircleStop size={14} />Stop turn</button> : selected.running ? <button className="button primary compact" onClick={() => void cancel(selected)}><Check size={14} />Finish conversation</button> : <button className="button quiet compact" onClick={() => selectRun(selected.id)}><ShieldCheck size={14} />Review changes</button>}</div></header>
+          <header><div><span className={`pulse ${statusOf(selected)}`} /><strong>{conversationTitle(selected, 80)}</strong><small>Conversation · {runLabel(selected)}{selected.background ? " · background task" : ""}</small>{tokenUsage ? <small className="conversation-usage">Provider usage · {formatTokenCount(tokenUsage.totalTokens)} total · {formatTokenCount(tokenUsage.inputTokens)} input · {formatTokenCount(tokenUsage.outputTokens)} output{tokenUsage.reasoningOutputTokens ? ` · ${formatTokenCount(tokenUsage.reasoningOutputTokens)} reasoning` : ""}<br />Rubyn efficiency · {formatTokenCount(tokenUsage.cachedInputTokens)} cached input tokens reused ({tokenUsage.cacheReusePercent}%)</small> : <small className="conversation-usage unavailable">Provider usage unavailable for this conversation</small>}</div><div>{turnActive ? <button className="button danger compact" onClick={() => void cancel(selected)}><CircleStop size={14} />Stop turn</button> : selected.running ? <button className="button primary compact" onClick={() => void cancel(selected)}><Check size={14} />Finish conversation</button> : <button className="button quiet compact" onClick={() => selectRun(selected.id)}><ShieldCheck size={14} />Review changes</button>}</div></header>
           <div ref={messageViewportRef} className="messages" aria-label="Conversation messages" aria-live="polite" onScroll={(event) => { const viewport = event.currentTarget; followLatestMessageRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 80; }}>{!hasPersistedInitialMessage && <ChatBubble role="user" text={selected.prompt} />}<ConversationTimeline events={selectedEvents} runId={selected.id} turnActive={turnActive} onAnswered={() => setNotice("Answer delivered to Rubyn.")} /></div>
-          {pendingApprovals.length > 0 && <div className="edit-approval-stack" aria-label="Pending edit approvals">{pendingApprovals.map((approval) => <section className="edit-approval" key={approval.id}><header><div><span>Approval required · {approval.editType}</span><strong>{approval.path}</strong></div><FileCode2 size={17} /></header><pre>{approval.content}</pre><footer><span>The worktree is unchanged until you approve.</span><div><button className="button quiet compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, false)}>Deny</button><button className="button primary compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, true)}><Check size={14} />Approve edit</button></div></footer></section>)}</div>}
-          {!hasTerminalLifecycle(selected.lifecycle) ? <form className="chat-composer" onSubmit={reply}><AttachmentTray attachments={replyAttachments} remove={(path) => setConversationAttachments(selected.id, replyAttachments.filter((item) => item.path !== path))} /><textarea aria-label="Message Rubyn" value={message} onChange={(event) => setConversationDraft(selected.id, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={turnActive ? "Queue guidance while Rubyn works…" : selected.outcome === "failed" ? "Retry with a connected model…" : "Continue this conversation…"} rows={3} /><div className="composer-actions"><button type="button" className="attach-button" aria-label="Attach images or files" onClick={() => void pickAttachments(replyAttachments, (items) => setConversationAttachments(selected.id, items))}><Paperclip size={17} />Attach</button><button className="button primary" disabled={(!message.trim() && !replyAttachments.length) || (!selected.running && activeCount >= 3) || engineState !== "ready" || !selectedModel}><ArrowUpRight size={16} />{turnActive ? "Queue" : selected.outcome === "failed" ? "Retry" : "Continue"}</button></div></form> : <div className="chat-ended">This worktree has already been {statusOf(selected)}.</div>}
-        </article> : <article className="chat-thread start-thread"><div className="start-canvas"><div className="rubyn-orb">R</div><Kicker>{`Rubyn Code · ${project.name}`}</Kicker><h2>What should Rubyn work on?</h2><p>Talk naturally. Add images, code, or text context when it helps.</p><form className="chat-start-composer" onSubmit={launch}>{projectData.tasks.filter((task) => task.ready).length > 0 && <label className="task-attachment">Attached task<select aria-label="Attach a task" value={newConversationTaskId || ""} onChange={(event) => { const task = projectData.tasks.find((candidate) => candidate.id === Number(event.target.value)); setNewConversationTaskId(task?.id); if (task) setNewConversationDraft(taskPrompt(task)); }}><option value="">No task attached</option>{projectData.tasks.filter((task) => task.ready).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}<AttachmentTray attachments={newConversationAttachments} remove={(path) => setNewConversationAttachments(newConversationAttachments.filter((item) => item.path !== path))} /><textarea autoFocus aria-label="Prompt" value={newConversationDraft} onChange={(event) => setNewConversationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ask Rubyn to plan, investigate, build, test, or review…" rows={4} /><footer><div className="composer-facts"><button type="button" className="attach-button" aria-label="Attach images or files" onClick={() => void pickAttachments(newConversationAttachments, setNewConversationAttachments)}><Paperclip size={16} />Attach files</button><span>isolated worktree</span></div><button className="send-orb" aria-label="Start conversation" disabled={launching || (!newConversationDraft.trim() && !newConversationAttachments.length) || activeCount >= 3 || !selectedModel}><ArrowUpRight size={18} /></button></footer></form></div></article>}
+          {pendingApprovals.length > 0 && <div className="edit-approval-stack" aria-label="Pending approvals">{pendingApprovals.map((approval) => { const command = approval.approvalKind === "commandExecution"; return <section className="edit-approval" key={approval.id}><header><div><span>Approval required · {command ? "command" : approval.editType}</span><strong>{command ? `Working directory: ${approval.path}` : approval.path}</strong></div><FileCode2 size={17} /></header><pre>{approval.content}</pre><footer><span>{command ? "Only this displayed command will be authorized." : "The worktree is unchanged until you approve."}</span><div><button className="button quiet compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, false)}>Deny</button><button className="button primary compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, true)}><Check size={14} />{command ? "Run command" : "Approve edit"}</button></div></footer></section>; })}</div>}
+          {!hasTerminalLifecycle(selected.lifecycle) ? <form className="chat-composer" onSubmit={reply}><AttachmentTray attachments={replyAttachments} remove={(path) => setConversationAttachments(selected.id, replyAttachments.filter((item) => item.path !== path))} /><textarea aria-label="Message Rubyn" value={message} onChange={(event) => setConversationDraft(selected.id, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={turnActive ? "Queue guidance while Rubyn works…" : selected.outcome === "failed" ? "Retry with a connected model…" : "Continue this conversation…"} rows={3} /><div className="composer-actions"><button type="button" className="attach-button" aria-label="Attach images or files" onClick={() => void pickAttachments(replyAttachments, (items) => setConversationAttachments(selected.id, items))}><Paperclip size={17} />Attach</button><button className="button primary" disabled={(!message.trim() && !replyAttachments.length) || (!selected.running && activeCount >= parallelLimit) || engineState !== "ready" || !selectedModel}><ArrowUpRight size={16} />{turnActive ? "Queue" : selected.outcome === "failed" ? "Retry" : "Continue"}</button></div></form> : <div className="chat-ended">This worktree has already been {statusOf(selected)}.</div>}
+        </article> : <article className="chat-thread start-thread"><div className="start-canvas"><div className="rubyn-orb">R</div><Kicker>{`Rubyn Code · ${project.name}`}</Kicker><h2>What should Rubyn work on?</h2><p>Talk naturally. Add images, code, or text context when it helps.</p><form className="chat-start-composer" onSubmit={launch}>{projectData.tasks.filter((task) => task.ready).length > 0 && <label className="task-attachment">Attached task<select aria-label="Attach a task" value={newConversationTaskId || ""} onChange={(event) => { const task = projectData.tasks.find((candidate) => candidate.id === Number(event.target.value)); setNewConversationTaskId(task?.id); if (task) setNewConversationDraft(taskPrompt(task)); }}><option value="">No task attached</option>{projectData.tasks.filter((task) => task.ready).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>}<AttachmentTray attachments={newConversationAttachments} remove={(path) => setNewConversationAttachments(newConversationAttachments.filter((item) => item.path !== path))} /><textarea autoFocus aria-label="Prompt" value={newConversationDraft} onChange={(event) => setNewConversationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ask Rubyn to plan, investigate, build, test, or review…" rows={4} /><footer><div className="composer-facts"><button type="button" className="attach-button" aria-label="Attach images or files" onClick={() => void pickAttachments(newConversationAttachments, setNewConversationAttachments)}><Paperclip size={16} />Attach files</button><span>isolated worktree</span></div><button className="send-orb" aria-label="Start conversation" disabled={launching || (!newConversationDraft.trim() && !newConversationAttachments.length) || activeCount >= parallelLimit || !selectedModel}><ArrowUpRight size={18} /></button></footer></form></div></article>}
       </div>
     </section>
   );
@@ -745,6 +750,39 @@ function AttachmentTray({ attachments, remove }: { attachments: AttachmentSelect
 
 function eventPayload(event: { payload: unknown }, key: string): unknown {
   return event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>)[key] : undefined;
+}
+
+interface TokenUsageSummary {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  cacheReusePercent: number;
+}
+
+function latestTokenUsage(events: Array<{ kind: string; payload: unknown }>): TokenUsageSummary | undefined {
+  const payload = [...events].reverse().find((event) => event.kind === "token/usage")?.payload;
+  if (!payload || typeof payload !== "object") return undefined;
+  const usage = payload as Record<string, unknown>;
+  const inputTokens = Number(usage.inputTokens);
+  const cachedInputTokens = Number(usage.cachedInputTokens);
+  const outputTokens = Number(usage.outputTokens);
+  const reasoningOutputTokens = Number(usage.reasoningOutputTokens);
+  const totalTokens = Number(usage.totalTokens);
+  if (![inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens].every(Number.isFinite)) return undefined;
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens,
+    cacheReusePercent: inputTokens > 0 ? Math.min(100, Math.round((cachedInputTokens / inputTokens) * 100)) : 0,
+  };
+}
+
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 function eventAttachmentSummaries(event: { payload: unknown }): { name: string; kind: string }[] {

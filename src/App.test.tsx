@@ -879,6 +879,23 @@ describe("native product flow", () => {
     expect(native.updateTask).toHaveBeenCalledWith(2, "implementing", 42);
   });
 
+  it("uses the configured parallel limit for launch and fan-out capacity", async () => {
+    native.appState.mockResolvedValue({
+      ...emptyState,
+      preferences: { ...emptyState.preferences, parallelLimit: 1 },
+      recentProjects: [{ path: project.path, name: project.name }],
+    });
+    data.tasks = [makeTask(1, "Ready task")];
+    data.runs = [{ ...cancelledRun(), running: true, outcome: "running", finishedAt: undefined }];
+
+    render(<App />);
+    await screen.findByText("ledger is the source of truth.", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
+
+    expect(await screen.findByText("1/1 live")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan fan-out" })).toBeDisabled();
+  });
+
   it("configures workflow columns and assigns Rubyn conversations to tasks and todos", async () => {
     native.appState.mockResolvedValue({
       ...emptyState,
@@ -951,7 +968,7 @@ describe("native product flow", () => {
       recentProjects: [{ path: project.path, name: project.name }],
     });
     data.runs = [{ ...cancelledRun(), running: true, outcome: "running", finishedAt: undefined }];
-    data.approvals = [{ id: 9, runId: 31, editId: "edit-9", path: "app/models/user.rb", content: "class User\nend\n", editType: "modify", status: "pending", requestedAt: 1 }];
+    data.approvals = [{ id: 9, runId: 31, editId: "edit-9", path: "app/models/user.rb", content: "class User\nend\n", editType: "modify", approvalKind: "fileChange", status: "pending", requestedAt: 1 }];
     native.resolveEditApproval.mockImplementation(async (_runId: number, editId: string, accepted: boolean) => {
       data.approvals[0] = { ...data.approvals[0], status: accepted ? "approved" : "denied", decidedAt: 2 };
       return data.approvals[0];
@@ -961,13 +978,66 @@ describe("native product flow", () => {
     await screen.findByText("ledger is the source of truth.", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
 
-    const approvals = await screen.findByLabelText("Pending edit approvals");
+    const approvals = await screen.findByLabelText("Pending approvals");
     expect(approvals).toHaveTextContent("app/models/user.rb");
     expect(approvals).toHaveTextContent("class User end");
     fireEvent.click(screen.getByRole("button", { name: "Approve edit" }));
 
     await waitFor(() => expect(native.resolveEditApproval).toHaveBeenCalledWith(31, "edit-9", true));
-    await waitFor(() => expect(screen.queryByLabelText("Pending edit approvals")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByLabelText("Pending approvals")).not.toBeInTheDocument());
+  });
+
+  it("shows exact command context and grants only the displayed request", async () => {
+    native.appState.mockResolvedValue({
+      ...emptyState,
+      recentProjects: [{ path: project.path, name: project.name }],
+    });
+    data.runs = [{ ...cancelledRun(), running: true, outcome: "running", finishedAt: undefined }];
+    data.approvals = [{ id: 10, runId: 31, editId: "command-10", path: "/tmp/example-app", content: "bundle exec rails test\n\nReason: Run the test suite", editType: "command", approvalKind: "commandExecution", status: "pending", requestedAt: 1 }];
+    native.resolveEditApproval.mockImplementation(async (_runId: number, editId: string, accepted: boolean) => {
+      data.approvals[0] = { ...data.approvals[0], status: accepted ? "approved" : "denied", decidedAt: 2 };
+      return data.approvals[0];
+    });
+
+    render(<App />);
+    await screen.findByText("ledger is the source of truth.", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
+
+    const approvals = await screen.findByLabelText("Pending approvals");
+    expect(approvals).toHaveTextContent("Working directory: /tmp/example-app");
+    expect(approvals).toHaveTextContent("bundle exec rails test Reason: Run the test suite");
+    expect(approvals).toHaveTextContent("Only this displayed command will be authorized.");
+    fireEvent.click(screen.getByRole("button", { name: "Run command" }));
+
+    await waitFor(() => expect(native.resolveEditApproval).toHaveBeenCalledWith(31, "command-10", true));
+  });
+
+  it("shows provider token usage and cached-input efficiency for the selected conversation", async () => {
+    native.appState.mockResolvedValue({
+      ...emptyState,
+      recentProjects: [{ path: project.path, name: project.name }],
+    });
+    data.runs = [cancelledRun()];
+    native.pollRunEvents.mockResolvedValue({
+      run: data.runs[0],
+      events: [{
+        id: 11,
+        runId: 31,
+        protocolSequence: 11,
+        kind: "token/usage",
+        payload: { inputTokens: 40_000, cachedInputTokens: 30_000, outputTokens: 1_200, reasoningOutputTokens: 200, totalTokens: 41_200, source: "provider" },
+        raw: "",
+        createdAt: 11,
+      }],
+      nextEventId: 11,
+    });
+
+    render(<App />);
+    await screen.findByText("ledger is the source of truth.", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
+
+    expect(await screen.findByText(/Provider usage · 41.2K total · 40K input · 1.2K output · 200 reasoning/)).toBeInTheDocument();
+    expect(screen.getByText(/Rubyn efficiency · 30K cached input tokens reused \(75%\)/)).toBeInTheDocument();
   });
 
   it("keeps a followed conversation scrolled to its newest message", async () => {
