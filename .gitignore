@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.rubyn-harness/
+.pnpm-store/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

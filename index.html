@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#131115" />
+    <meta name="description" content="Rubyn Harness — a Rails-native agent engineering control room." />
+    <title>Rubyn Harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      if (window.location.protocol === "file:") {
+        document.getElementById("root").innerHTML = `
+          <main style="max-width:760px;margin:12vh auto;padding:32px;font:16px/1.6 system-ui;color:#eee;background:#1c1b1f;border:1px solid #444;border-radius:12px">
+            <h1 style="margin-top:0">This file is not the Rubyn Harness application.</h1>
+            <p>Rubyn Harness is a native Tauri desktop app. Opening <code>index.html</code> directly cannot connect to its Rust host, Git worktrees, persistence, or Rubyn Code.</p>
+            <p>For development, run <code>pnpm tauri dev</code>. For the packaged build, open <code>src-tauri/target/debug/bundle/macos/Rubyn Harness.app</code>.</p>
+          </main>`;
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

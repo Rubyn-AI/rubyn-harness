@@ -1,0 +1,11 @@
+{
+  "sourceUrl": "https://github.com/Rubyn-AI/rubyn-test.git",
+  "sourceRevision": "ab0f6b10bfebadf5c5f401cf237ce3f347db1ce3",
+  "acceptanceBranch": "rubyn-acceptance",
+  "expectedMarkers": [
+    "Gemfile",
+    "config/application.rb",
+    "app/models/post.rb",
+    "app/controllers/posts_controller.rb"
+  ]
+}
