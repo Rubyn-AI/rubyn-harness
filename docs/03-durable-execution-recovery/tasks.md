@@ -24,10 +24,10 @@
 - [x] 4.2 Prove retry and engine failure remain scoped to the affected run. (refs Req 3.3)
 - [x] 4.3 Prove live-run limits and concurrent worktree/approval isolation. (refs Req 3.4)
 
-## [ ] 5. Validation
+## [x] 5. Validation
 
 - [x] 5.1 Run frontend, fixture, Rust, lint, typecheck, format, Clippy, and production build checks. (refs Req 3.1, Req 3.2, Req 3.3, Req 3.4)
-- [ ] 5.2 Run native deny, approve, restart-expiry, retry, and concurrency smoke flows on the disposable Rails fixture. (refs Req 3.1, Req 3.2, Req 3.3, Req 3.4)
+- [x] 5.2 Run native deny, approve, restart-expiry, retry, and concurrency smoke flows on the disposable Rails fixture. (refs Req 3.1, Req 3.2, Req 3.3, Req 3.4)
 - [x] 5.3 Record findings and confirm the fixture source remains unchanged. (refs Req 3.3, Req 3.4)
 
 ## [x] 6. Token usage and efficiency

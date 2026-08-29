@@ -47,6 +47,7 @@ The encoded `editId` remains the opaque provider callback identity. For Codex co
 ## Protocol decisions
 
 - Harness presents only single-request approve and deny actions.
+- Codex threads and turns use the `untrusted` approval policy with the read-only sandbox. This combination emits command callbacks while preserving explicit file-change approval.
 - Approve maps to `accept`; deny maps to `decline`.
 - `acceptForSession`, execution-policy amendments, and network-policy amendments are intentionally not exposed in this phase.
 - Missing optional command details remain visible as explicit unavailable values rather than invented summaries.

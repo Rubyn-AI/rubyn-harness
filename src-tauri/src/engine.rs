@@ -212,6 +212,7 @@ impl ProtocolState {
 }
 
 const MAX_CAPTURE_BYTES: usize = 1_048_576;
+const CODEX_APPROVAL_POLICY: &str = "untrusted";
 
 impl EngineSupervisor {
     pub fn at_capacity(&mut self, limit: usize) -> bool {
@@ -877,7 +878,7 @@ fn send_turn(
                             "input": [{"type":"text", "text":message}],
                             "cwd": managed.worktree_path,
                             "model": managed.model,
-                            "approvalPolicy": "on-request",
+                            "approvalPolicy": CODEX_APPROVAL_POLICY,
                             "sandboxPolicy": {"type":"readOnly", "networkAccess":false}
                         }
                     }),
@@ -940,9 +941,9 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                 "thread/start"
             };
             let thread_params = if let Some(thread_id) = resume_thread_id {
-                serde_json::json!({"threadId":thread_id,"cwd":workspace,"model":model,"approvalPolicy":"on-request","sandbox":"read-only"})
+                serde_json::json!({"threadId":thread_id,"cwd":workspace,"model":model,"approvalPolicy":CODEX_APPROVAL_POLICY,"sandbox":"read-only"})
             } else {
-                serde_json::json!({"cwd":workspace,"model":model,"approvalPolicy":"on-request","sandbox":"read-only","dynamicTools":codex_dynamic_tools()})
+                serde_json::json!({"cwd":workspace,"model":model,"approvalPolicy":CODEX_APPROVAL_POLICY,"sandbox":"read-only","dynamicTools":codex_dynamic_tools()})
             };
             let _ = send_request(
                 &writer,
@@ -998,7 +999,7 @@ fn capture_codex_protocol<R: Read + Send + 'static>(
                         );
                         let _ = send_request(
                             &writer,
-                            &serde_json::json!({"id":2,"method":"turn/start","params":{"threadId":value,"input":[{"type":"text","text":initial_prompt}],"cwd":workspace,"model":model,"approvalPolicy":"on-request","sandboxPolicy":{"type":"readOnly","networkAccess":false}}}),
+                            &serde_json::json!({"id":2,"method":"turn/start","params":{"threadId":value,"input":[{"type":"text","text":initial_prompt}],"cwd":workspace,"model":model,"approvalPolicy":CODEX_APPROVAL_POLICY,"sandboxPolicy":{"type":"readOnly","networkAccess":false}}}),
                         );
                     }
                     continue;
@@ -1915,6 +1916,7 @@ mod tests {
 
     #[test]
     fn codex_runs_use_the_app_server_instead_of_copying_oauth_tokens() {
+        assert_eq!(CODEX_APPROVAL_POLICY, "untrusted");
         let request = LaunchEngineRequest {
             project_path: "/tmp".into(),
             mode: EngineLaunchMode::Prompt {
