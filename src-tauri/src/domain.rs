@@ -733,6 +733,17 @@ pub struct RunWorktreeInspection {
     pub run: RunRecord,
     pub status: GitStatus,
     pub diff: GitDiff,
+    pub readiness: IntegrationReadiness,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrationReadiness {
+    pub source_head: String,
+    pub recorded_base: String,
+    pub source_clean: bool,
+    pub source_matches_base: bool,
+    pub blockers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -38,6 +38,7 @@ const native = vi.hoisted(() => ({
   inspectRunWorktree: vi.fn(),
   integrateRun: vi.fn(),
   discardRun: vi.fn(),
+  retryRunCleanup: vi.fn(),
   stop: vi.fn(),
   resolveEditApproval: vi.fn(),
   createTask: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock("./bridge", async () => {
       inspectRunWorktree: native.inspectRunWorktree,
       integrateRun: native.integrateRun,
       discardRun: native.discardRun,
+      retryRunCleanup: native.retryRunCleanup,
       stop: native.stop,
       resolveEditApproval: native.resolveEditApproval,
       createTask: native.createTask,
@@ -213,6 +215,16 @@ function cancelledRun(): RunRecord {
     createdAt: 1,
     updatedAt: 2,
     finishedAt: 2,
+  };
+}
+
+function readyIntegration() {
+  return {
+    sourceHead: "0123456789abcdef",
+    recordedBase: "0123456789abcdef",
+    sourceClean: true,
+    sourceMatchesBase: true,
+    blockers: [],
   };
 }
 
@@ -516,6 +528,11 @@ describe("native product flow", () => {
       recentProjects: [{ path: project.path, name: project.name }],
     });
     data.runs = [{ ...cancelledRun(), lifecycle: "discard_cleanup_pending" }];
+    native.retryRunCleanup.mockImplementation(async () => {
+      const run = { ...cancelledRun(), lifecycle: "discarded" };
+      data.runs = [run];
+      return { run, cleanupPending: false };
+    });
 
     render(<App />);
     await screen.findByText("ledger is the source of truth.", { exact: false });
@@ -525,6 +542,9 @@ describe("native product flow", () => {
     expect(native.inspectRunWorktree).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Integrate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry cleanup" }));
+    await waitFor(() => expect(native.retryRunCleanup).toHaveBeenCalledWith(31));
+    expect(await screen.findByText("This worktree is discarded.")).toBeInTheDocument();
   });
 
   it("confirms destructive review cleanup inline", async () => {
@@ -534,18 +554,47 @@ describe("native product flow", () => {
       run: cancelledRun(),
       status: { branch: "HEAD", files: [] },
       diff: { diff: "", truncated: false },
+      readiness: readyIntegration(),
     });
     native.discardRun.mockResolvedValue({ runId: 31, disposition: "discarded", cleanupPending: false });
 
     render(<App />);
     await screen.findByText("ledger is the source of truth.", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByText(/no changes to integrate/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Integrate" })).toBeDisabled();
     fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
 
     expect(screen.getByText("Discard this worktree?")).toBeInTheDocument();
+    expect(screen.getAllByText(/0 changed files/)).toHaveLength(2);
     expect(native.discardRun).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Keep worktree" }));
     expect(screen.queryByText("Discard this worktree?")).not.toBeInTheDocument();
+  });
+
+  it("shows source drift and blocks integration before confirmation", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, recentProjects: [{ path: project.path, name: project.name }] });
+    data.runs = [cancelledRun()];
+    native.inspectRunWorktree.mockResolvedValue({
+      run: cancelledRun(),
+      status: { branch: "HEAD", files: [{ path: "app/models/account.rb", indexStatus: " ", worktreeStatus: "M" }] },
+      diff: { diff: "diff --git a/app/models/account.rb b/app/models/account.rb\n+validates :name", truncated: false },
+      readiness: {
+        ...readyIntegration(),
+        sourceHead: "fedcba9876543210",
+        sourceMatchesBase: false,
+        blockers: ["The source repository moved after this worktree was created. Start a fresh run from the current source revision."],
+      },
+    });
+
+    render(<App />);
+    await screen.findByText("ledger is the source of truth.", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(await screen.findByText("Integration blocked")).toBeInTheDocument();
+    expect(screen.getByText(/source repository moved/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Integrate" })).toBeDisabled();
+    expect(native.integrateRun).not.toHaveBeenCalled();
   });
 
   it("persists project work, launches from a task, cancels, reconciles status, and inspects the diff", async () => {
@@ -578,6 +627,7 @@ describe("native product flow", () => {
       run: cancelledRun(),
       status: { branch: "HEAD", files: [{ path: "app/services/billing_export.rb", indexStatus: " ", worktreeStatus: "M" }] },
       diff: { diff: "diff --git a/app/services/billing_export.rb b/app/services/billing_export.rb\n+exports invoices safely", truncated: false },
+      readiness: readyIntegration(),
     });
 
     render(<App />);
@@ -631,6 +681,12 @@ describe("native product flow", () => {
     expect(screen.getByText("1 changed file")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Integrate" })).toBeEnabled();
     expect(native.inspectRunWorktree).toHaveBeenCalledWith(31);
+    fireEvent.click(screen.getByRole("button", { name: "Integrate" }));
+    expect(screen.getByText("Integrate this reviewed worktree?")).toBeInTheDocument();
+    expect(screen.getByText(/1 changed file will be committed/)).toBeInTheDocument();
+    expect(native.integrateRun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Integrate this reviewed worktree?")).not.toBeInTheDocument();
   });
 
   it("finishes a waiting conversation before making its worktree reviewable", async () => {
@@ -643,6 +699,7 @@ describe("native product flow", () => {
       run: { ...cancelledRun(), outcome: "completed" },
       status: { branch: "HEAD", files: [{ path: "app/controllers/posts_controller.rb", indexStatus: " ", worktreeStatus: "M" }] },
       diff: { diff: "diff --git a/app/controllers/posts_controller.rb b/app/controllers/posts_controller.rb\n+safe search", truncated: false },
+      readiness: readyIntegration(),
     });
 
     render(<App />);

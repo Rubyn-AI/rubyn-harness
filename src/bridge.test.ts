@@ -180,6 +180,7 @@ describe("desktop bridge contract", () => {
     await harnessBridge.inspectRunWorktree(17);
     await harnessBridge.integrateRun(17);
     await harnessBridge.discardRun(18);
+    await harnessBridge.retryRunCleanup(19);
     await harnessBridge.listBundledSkills();
     await harnessBridge.listProjectSkills("/repo");
     await harnessBridge.createProjectSkill("/repo", "Tenant safety", "Scope every query.");
@@ -205,6 +206,7 @@ describe("desktop bridge contract", () => {
       ["inspect_run_worktree", { runId: 17 }],
       ["integrate_run", { runId: 17 }],
       ["discard_run", { runId: 18 }],
+      ["retry_run_cleanup", { runId: 19 }],
       ["list_bundled_skills", undefined],
       ["list_project_skills", { projectPath: "/repo" }],
       ["create_project_skill", { request: { projectPath: "/repo", name: "Tenant safety", content: "Scope every query." } }],

@@ -944,7 +944,17 @@ fn inspect_run_worktree(
         &run.base_commit,
     )
     .map_err(to_command_error)?;
-    Ok(RunWorktreeInspection { run, status, diff })
+    let readiness = services::inspect_integration_readiness(
+        Path::new(&run.source_project_path),
+        &run.base_commit,
+    )
+    .map_err(to_command_error)?;
+    Ok(RunWorktreeInspection {
+        run,
+        status,
+        diff,
+        readiness,
+    })
 }
 
 #[tauri::command]
@@ -1035,7 +1045,7 @@ fn discard_run(
     if run.running {
         return Err("Stop the run before discarding its worktree".into());
     }
-    if run.lifecycle != "retained" && !run.lifecycle.ends_with("cleanup_pending") {
+    if run.lifecycle != "retained" {
         return Err(format!(
             "Run {run_id} worktree is already {}",
             run.lifecycle
@@ -1056,6 +1066,44 @@ fn discard_run(
         run,
         commit_oid: None,
         cleanup_pending,
+    })
+}
+
+#[tauri::command]
+fn retry_run_cleanup(
+    app: AppHandle,
+    runtime: State<'_, AppRuntime>,
+    run_id: u64,
+) -> CommandResult<WorktreeActionResult> {
+    sync_runtime_state(&app, &runtime)?;
+    let run = state_repository(&app, &runtime)?
+        .as_ref()
+        .expect("state repository is initialized")
+        .run(run_id)
+        .map_err(to_command_error)?;
+    if run.lifecycle != "integrated_cleanup_pending" && run.lifecycle != "discard_cleanup_pending" {
+        return Err(format!(
+            "Run {run_id} does not have pending worktree cleanup"
+        ));
+    }
+    let worktree = Path::new(&run.worktree_path);
+    if worktree.exists() {
+        services::remove_isolated_worktree(
+            Path::new(&run.source_project_path),
+            worktree,
+            &runs_root(&app)?,
+        )
+        .map_err(to_command_error)?;
+    }
+    let run = state_repository(&app, &runtime)?
+        .as_mut()
+        .expect("state repository is initialized")
+        .mark_cleanup_complete(run_id)
+        .map_err(to_command_error)?;
+    Ok(WorktreeActionResult {
+        commit_oid: run.integrated_commit.clone(),
+        run,
+        cleanup_pending: false,
     })
 }
 
@@ -1460,6 +1508,7 @@ pub fn run() {
             inspect_run_worktree,
             integrate_run,
             discard_run,
+            retry_run_cleanup,
             list_bundled_skills,
             create_project_skill,
             list_project_skills,

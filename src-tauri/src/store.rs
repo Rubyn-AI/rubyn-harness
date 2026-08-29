@@ -2502,6 +2502,11 @@ impl StateRepository {
                 "a running run cannot be discarded".into(),
             ));
         }
+        if run.lifecycle != "retained" {
+            return Err(StoreError::Conflict(
+                "only a retained run can be discarded".into(),
+            ));
+        }
         run.lifecycle = if cleanup_pending {
             "discard_cleanup_pending"
         } else {
@@ -2514,6 +2519,34 @@ impl StateRepository {
             id,
             "worktree/discarded",
             serde_json::json!({"cleanupPending": cleanup_pending}),
+        );
+        self.save()?;
+        Ok(run)
+    }
+
+    pub fn mark_cleanup_complete(&mut self, id: u64) -> Result<RunRecord, StoreError> {
+        let run = self.run_mut(id)?;
+        let disposition = match run.lifecycle.as_str() {
+            "integrated_cleanup_pending" => {
+                run.lifecycle = "integrated".into();
+                "integrated"
+            }
+            "discard_cleanup_pending" => {
+                run.lifecycle = "discarded".into();
+                "discarded"
+            }
+            _ => {
+                return Err(StoreError::Conflict(
+                    "only a cleanup-pending run can complete cleanup".into(),
+                ))
+            }
+        };
+        run.updated_at = timestamp();
+        let run = run.clone();
+        self.push_system_event(
+            id,
+            "worktree/cleanup_completed",
+            serde_json::json!({"disposition": disposition}),
         );
         self.save()?;
         Ok(run)
@@ -3420,6 +3453,66 @@ mod tests {
             )
             .unwrap();
         assert!(next.id > run.id);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cleanup_completion_preserves_the_recorded_disposition() {
+        let directory = test_directory("cleanup-completion");
+        let project_path = directory.join("example-app");
+        let worktree_path = directory.join("worktrees/run-1/workspace");
+        fs::create_dir_all(&project_path).unwrap();
+        fs::create_dir_all(&worktree_path).unwrap();
+        let mut repository = StateRepository::open(&directory).unwrap();
+        let integrated = repository
+            .allocate_run(
+                &project_path,
+                &worktree_path,
+                "abc123".into(),
+                "Integrate work".into(),
+                "prompt".into(),
+            )
+            .unwrap();
+        repository
+            .mark_integrated(integrated.id, "def456", true)
+            .unwrap();
+        assert!(repository.mark_discarded(integrated.id, false).is_err());
+        assert_eq!(
+            repository
+                .mark_cleanup_complete(integrated.id)
+                .unwrap()
+                .lifecycle,
+            "integrated"
+        );
+        assert!(repository.mark_cleanup_complete(integrated.id).is_err());
+
+        let discarded = repository
+            .allocate_run(
+                &project_path,
+                &worktree_path,
+                "abc123".into(),
+                "Discard work".into(),
+                "prompt".into(),
+            )
+            .unwrap();
+        repository.mark_discarded(discarded.id, true).unwrap();
+        assert_eq!(
+            repository
+                .mark_cleanup_complete(discarded.id)
+                .unwrap()
+                .lifecycle,
+            "discarded"
+        );
+        assert!(repository
+            .events(discarded.id, 0)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "worktree/cleanup_completed"));
+        drop(repository);
+
+        let reopened = StateRepository::open(&directory).unwrap();
+        assert_eq!(reopened.run(integrated.id).unwrap().lifecycle, "integrated");
+        assert_eq!(reopened.run(discarded.id).unwrap().lifecycle, "discarded");
         fs::remove_dir_all(directory).unwrap();
     }
 

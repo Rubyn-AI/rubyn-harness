@@ -1,5 +1,6 @@
 use crate::domain::{
-    EngineInfo, EngineSource, GitDiff, GitFileStatus, GitStatus, ProjectSummary, SkillSummary,
+    EngineInfo, EngineSource, GitDiff, GitFileStatus, GitStatus, IntegrationReadiness,
+    ProjectSummary, SkillSummary,
 };
 use std::{
     collections::BTreeSet,
@@ -21,7 +22,7 @@ pub enum ServiceError {
     Io(#[from] std::io::Error),
     #[error("Git is not available or the directory is not a Git repository")]
     GitUnavailable,
-    #[error("Unable to create an isolated Git worktree: {0}")]
+    #[error("Unable to manage the isolated Git worktree: {0}")]
     Worktree(String),
     #[error("Agent launch blocked by an untrusted project feature: {0}")]
     UntrustedProject(String),
@@ -96,9 +97,22 @@ pub fn remove_isolated_worktree(
         ],
     )?;
     if !output.status.success() {
-        return Err(ServiceError::Worktree(
-            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        ));
+        let registered = git(&root, ["worktree", "list", "--porcelain"])?;
+        let listed = registered.status.success()
+            && String::from_utf8_lossy(&registered.stdout)
+                .lines()
+                .filter_map(|line| line.strip_prefix("worktree "))
+                .any(|path| Path::new(path) == worktree);
+        if listed || !registered.status.success() {
+            return Err(ServiceError::Worktree(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
+        fs::remove_dir_all(&worktree).map_err(|error| {
+            ServiceError::Worktree(format!(
+                "Git deregistered the worktree, but its managed directory could not be removed: {error}"
+            ))
+        })?;
     }
     if let Some(container) = worktree.parent() {
         let _ = fs::remove_dir(container);
@@ -136,6 +150,33 @@ pub fn inspect_isolated_worktree(
     Ok((status, git_diff_from_base(&worktree, base_commit)?))
 }
 
+pub fn inspect_integration_readiness(
+    project: &Path,
+    base_commit: &str,
+) -> Result<IntegrationReadiness, ServiceError> {
+    validate_git_oid(base_commit)?;
+    let root = git_root(project)?;
+    let source_head = git_text(&root, ["rev-parse", "HEAD"])?;
+    let source_clean = git_status(root.to_string_lossy().as_ref())?
+        .files
+        .is_empty();
+    let source_matches_base = source_head == base_commit;
+    let mut blockers = Vec::new();
+    if !source_clean {
+        blockers.push("The source repository has uncommitted changes. Commit or stash them, then refresh review.".into());
+    }
+    if !source_matches_base {
+        blockers.push("The source repository moved after this worktree was created. Start a fresh run from the current source revision.".into());
+    }
+    Ok(IntegrationReadiness {
+        source_head,
+        recorded_base: base_commit.into(),
+        source_clean,
+        source_matches_base,
+        blockers,
+    })
+}
+
 pub fn integrate_isolated_worktree(
     project: &Path,
     worktree: &Path,
@@ -149,24 +190,28 @@ pub fn integrate_isolated_worktree(
     ensure_agent_safe_project(&worktree)?;
     let disabled_hooks = runs_root.join(".disabled-hooks");
     fs::create_dir_all(&disabled_hooks)?;
-    if !git_status(root.to_string_lossy().as_ref())?
-        .files
-        .is_empty()
-    {
-        return Err(ServiceError::Integration(
-            "the source project must have a clean index and working tree before integration".into(),
-        ));
+    let readiness = inspect_integration_readiness(&root, base_commit)?;
+    if !readiness.blockers.is_empty() {
+        return Err(ServiceError::Integration(readiness.blockers.join(" ")));
     }
 
     let head_before = git_text(&worktree, ["rev-parse", "HEAD"])?;
+    let ancestor = git(
+        &worktree,
+        ["merge-base", "--is-ancestor", base_commit, &head_before],
+    )?;
+    if !ancestor.status.success() {
+        return Err(ServiceError::Integration(
+            "the retained worktree is no longer based on its recorded source revision".into(),
+        ));
+    }
     let status = git_status(worktree.to_string_lossy().as_ref())?;
-    let mut commit = if status.files.is_empty() {
+    if status.files.is_empty() {
         if head_before == base_commit {
             return Err(ServiceError::Integration(
                 "the run worktree has no changes to integrate".into(),
             ));
         }
-        head_before
     } else {
         let added = git(&worktree, ["add", "--all", "--"])?;
         if !added.status.success() {
@@ -190,18 +235,8 @@ pub fn integrate_isolated_worktree(
             let _ = git(&worktree, ["reset", "--mixed", "HEAD"]);
             return Err(ServiceError::Integration(git_error(&committed)));
         }
-        git_text(&worktree, ["rev-parse", "HEAD"])?
-    };
-
-    let ancestor = git(
-        &worktree,
-        ["merge-base", "--is-ancestor", base_commit, &commit],
-    )?;
-    if !ancestor.status.success() {
-        return Err(ServiceError::Integration(
-            "the retained worktree is no longer based on its recorded source revision".into(),
-        ));
     }
+
     let reset = git(&worktree, ["reset", "--soft", base_commit])?;
     if !reset.status.success() {
         return Err(ServiceError::Integration(git_error(&reset)));
@@ -223,7 +258,7 @@ pub fn integrate_isolated_worktree(
     if !squashed.status.success() {
         return Err(ServiceError::Integration(git_error(&squashed)));
     }
-    commit = git_text(&worktree, ["rev-parse", "HEAD"])?;
+    let commit = git_text(&worktree, ["rev-parse", "HEAD"])?;
     let source_tree = git_text(&root, ["rev-parse", "HEAD^{tree}"])?;
     let worktree_tree = git_text(&worktree, ["rev-parse", &format!("{commit}^{{tree}}")])?;
     if source_tree == worktree_tree {
@@ -242,7 +277,7 @@ pub fn integrate_isolated_worktree(
             "cherry-pick was aborted: {detail}"
         )));
     }
-    Ok(commit)
+    git_text(&root, ["rev-parse", "HEAD"])
 }
 
 fn ensure_agent_safe_project(project: &Path) -> Result<(), ServiceError> {
@@ -975,7 +1010,7 @@ mod tests {
             41,
         )
         .unwrap();
-        assert!(!commit.is_empty());
+        assert_eq!(commit, git_text(&project, ["rev-parse", "HEAD"]).unwrap());
         assert_eq!(
             fs::read_to_string(project.join("README.md")).unwrap(),
             "integrated\n"
@@ -1089,6 +1124,73 @@ mod tests {
     }
 
     #[test]
+    fn integration_refuses_clean_source_drift_and_retains_the_worktree() {
+        let container = std::env::temp_dir().join(format!(
+            "rubyn-drift-integrate-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let project = container.join("source");
+        let runs_root = container.join("runs");
+        initialize_test_repository(&project);
+        let allocation = create_isolated_worktree(&project, &runs_root).unwrap();
+        fs::write(allocation.path.join("agent.rb"), "puts :agent\n").unwrap();
+        fs::write(project.join("source.rb"), "puts :source\n").unwrap();
+        for args in [
+            vec!["add", "source.rb"],
+            vec!["commit", "-m", "source drift"],
+        ] {
+            let output = git(&project, args).unwrap();
+            assert!(output.status.success(), "{}", git_error(&output));
+        }
+
+        let readiness = inspect_integration_readiness(&project, &allocation.base_commit).unwrap();
+        assert!(readiness.source_clean);
+        assert!(!readiness.source_matches_base);
+        assert!(readiness.blockers[0].contains("moved"));
+        let error = integrate_isolated_worktree(
+            &project,
+            &allocation.path,
+            &runs_root,
+            &allocation.base_commit,
+            43,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("moved"));
+        assert!(allocation.path.join("agent.rb").exists());
+        assert!(!project.join("agent.rb").exists());
+        remove_isolated_worktree(&project, &allocation.path, &runs_root).unwrap();
+        fs::remove_dir_all(container).unwrap();
+    }
+
+    #[test]
+    fn integration_refuses_a_no_change_worktree() {
+        let container = std::env::temp_dir().join(format!(
+            "rubyn-no-change-integrate-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let project = container.join("source");
+        let runs_root = container.join("runs");
+        initialize_test_repository(&project);
+        let allocation = create_isolated_worktree(&project, &runs_root).unwrap();
+        let error = integrate_isolated_worktree(
+            &project,
+            &allocation.path,
+            &runs_root,
+            &allocation.base_commit,
+            45,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("no changes"));
+        assert!(allocation.path.exists());
+        remove_isolated_worktree(&project, &allocation.path, &runs_root).unwrap();
+        fs::remove_dir_all(container).unwrap();
+    }
+
+    #[test]
     fn discarding_removes_only_the_managed_worktree() {
         let container = std::env::temp_dir().join(format!(
             "rubyn-discard-{}-{}",
@@ -1111,6 +1213,36 @@ mod tests {
             .unwrap()
             .files
             .is_empty());
+        fs::remove_dir_all(container).unwrap();
+    }
+
+    #[test]
+    fn cleanup_recovers_an_orphaned_managed_worktree_directory() {
+        let container = std::env::temp_dir().join(format!(
+            "rubyn-orphan-cleanup-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let project = container.join("source");
+        let runs_root = container.join("runs");
+        initialize_test_repository(&project);
+        let allocation = create_isolated_worktree(&project, &runs_root).unwrap();
+        let git_file = allocation.path.join(".git");
+        let admin = fs::read_to_string(&git_file)
+            .unwrap()
+            .trim()
+            .strip_prefix("gitdir: ")
+            .map(PathBuf::from)
+            .unwrap();
+        fs::remove_dir_all(admin).unwrap();
+        fs::remove_file(git_file).unwrap();
+
+        remove_isolated_worktree(&project, &allocation.path, &runs_root).unwrap();
+        assert!(!allocation.path.exists());
+        assert_eq!(
+            fs::read_to_string(project.join("README.md")).unwrap(),
+            "baseline\n"
+        );
         fs::remove_dir_all(container).unwrap();
     }
 

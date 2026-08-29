@@ -995,6 +995,7 @@ function Review() {
   const [inspection, setInspection] = useState<RunWorktreeInspection>();
   const [loading, setLoading] = useState(false);
   const [acting, setActing] = useState(false);
+  const [confirmingIntegration, setConfirmingIntegration] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const runs = projectData?.runs || [];
   const selected = runs.find((run) => run.id === selectedRunId) || runs[0];
@@ -1004,6 +1005,7 @@ function Review() {
 
   useEffect(() => {
     setInspection(undefined);
+    setConfirmingIntegration(false);
     setConfirmingDiscard(false);
     if (!selectedId || selectedRunning || (selectedLifecycle && hasTerminalLifecycle(selectedLifecycle))) return;
     let current = true;
@@ -1036,8 +1038,19 @@ function Review() {
       await refresh();
     } catch (error) { setNotice(String(error)); } finally { setActing(false); }
   };
+  const retryCleanup = async () => {
+    setActing(true);
+    try {
+      const result = await harnessBridge.retryRunCleanup(selected.id);
+      setNotice(result.run.lifecycle === "integrated" ? "Integrated worktree cleanup completed." : "Discarded worktree cleanup completed.");
+      await refresh();
+    } catch (error) { setNotice(String(error)); } finally { setActing(false); }
+  };
 
   const actionable = !selected.running && !hasTerminalLifecycle(selected.lifecycle);
+  const cleanupPending = selected.lifecycle.endsWith("cleanup_pending");
+  const changedFileCount = inspection?.status.files.length ?? 0;
+  const integrationBlocked = !inspection || changedFileCount === 0 || inspection.readiness.blockers.length > 0;
   return (
     <section>
       <div className="section-title inline-title"><div><Kicker>Real worktree evidence</Kicker><h1>Review</h1><p>Inspect a conversation’s Git status and unified diff before choosing what happens to its worktree.</p></div><label className="run-selector">Conversation<select value={selected.id} onChange={(event) => selectRun(Number(event.target.value))}>{runs.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationTitle(conversation, 48)} · {runLabel(conversation)}</option>)}</select></label></div>
@@ -1049,10 +1062,13 @@ function Review() {
         <aside className="review-notes">
           <Kicker>Worktree disposition</Kicker><h2>{conversationTitle(selected, 90)}</h2>
           <dl className="run-facts"><div><dt>Status</dt><dd>{runLabel(selected)}</dd></div><div><dt>Base</dt><dd>{selected.baseCommit.slice(0, 12) || "unknown"}</dd></div><div><dt>Files</dt><dd>{inspection?.status.files.length ?? "—"}</dd></div></dl>
+          {inspection && <div className={`integration-readiness ${inspection.readiness.blockers.length ? "blocked" : "ready"}`}><strong>{inspection.readiness.blockers.length ? "Integration blocked" : "Source ready"}</strong><dl><div><dt>Source HEAD</dt><dd>{inspection.readiness.sourceHead.slice(0, 12)}</dd></div><div><dt>Source clean</dt><dd>{inspection.readiness.sourceClean ? "Yes" : "No"}</dd></div><div><dt>Matches run base</dt><dd>{inspection.readiness.sourceMatchesBase ? "Yes" : "No"}</dd></div></dl>{inspection.readiness.blockers.map((blocker) => <p key={blocker}>{blocker}</p>)}{!inspection.readiness.blockers.length && !changedFileCount && <p>This run has no changes to integrate. Discard it when you no longer need the worktree.</p>}</div>}
           <p className="review-path">{selected.worktreePath}</p>
+          {actionable && confirmingIntegration && <div className="integration-confirm" role="alert"><strong>Integrate this reviewed worktree?</strong><p>{changedFileCount} changed {changedFileCount === 1 ? "file" : "files"} will be committed into {project.path}. Native checks will run again before the source changes.</p><div><button className="button primary compact" onClick={() => void integrate()} disabled={acting}>{acting ? "Integrating…" : "Integrate reviewed changes"}</button><button className="button quiet compact" onClick={() => setConfirmingIntegration(false)} disabled={acting}>Cancel</button></div></div>}
+          {actionable && confirmingDiscard && <div className="discard-confirm" role="alert"><strong>Discard this worktree?</strong><p>This removes {selected.worktreePath} and its {changedFileCount} changed {changedFileCount === 1 ? "file" : "files"}. The source project is not changed.</p><div><button className="button danger compact" onClick={() => void discard()} disabled={acting}>Remove worktree</button><button className="button quiet compact" onClick={() => setConfirmingDiscard(false)} disabled={acting}>Keep worktree</button></div></div>}
           {inspection?.status.files.length ? <div className="changed-files"><strong>Changed files</strong>{inspection.status.files.map((file) => <span key={file.path}><FileCode2 size={13} />{file.path}<b>{`${file.indexStatus}${file.worktreeStatus}`.trim() || "M"}</b></span>)}</div> : null}
-          {actionable && !confirmingDiscard && <div className="review-actions"><button className="button primary" onClick={() => void integrate()} disabled={acting || loading || !inspection?.status.files.length}><Check size={16} />Integrate</button><button className="button danger" onClick={() => setConfirmingDiscard(true)} disabled={acting || loading}><Trash2 size={15} />Discard</button></div>}
-          {actionable && confirmingDiscard && <div className="discard-confirm" role="alert"><strong>Discard this worktree?</strong><p>This removes the isolated worktree. The source project is not changed.</p><div><button className="button danger compact" onClick={() => void discard()} disabled={acting}>Remove worktree</button><button className="button quiet compact" onClick={() => setConfirmingDiscard(false)} disabled={acting}>Keep worktree</button></div></div>}
+          {actionable && !confirmingDiscard && !confirmingIntegration && <div className="review-actions"><button className="button primary" onClick={() => setConfirmingIntegration(true)} disabled={acting || loading || integrationBlocked}><Check size={16} />Integrate</button><button className="button danger" onClick={() => setConfirmingDiscard(true)} disabled={acting || loading}><Trash2 size={15} />Discard</button></div>}
+          {cleanupPending && <div className="cleanup-recovery" role="alert"><strong>Worktree cleanup is pending</strong><p>The {selected.lifecycle.startsWith("integrated") ? "integration is recorded" : "discard is recorded"}, but the managed worktree still needs removal.</p><button className="button primary compact" onClick={() => void retryCleanup()} disabled={acting}>{acting ? "Retrying…" : "Retry cleanup"}</button></div>}
           {selected.integratedCommit && <p className="commit-result">Integrated as {selected.integratedCommit}</p>}
         </aside>
       </div>

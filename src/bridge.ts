@@ -267,6 +267,13 @@ export interface RunWorktreeInspection {
   run: RunRecord;
   status: GitStatus;
   diff: GitDiff;
+  readiness: {
+    sourceHead: string;
+    recordedBase: string;
+    sourceClean: boolean;
+    sourceMatchesBase: boolean;
+    blockers: string[];
+  };
 }
 
 export interface WorktreeActionResult {
@@ -351,6 +358,7 @@ export const harnessBridge = {
   inspectRunWorktree: (runId: number) => desktopInvoke<RunWorktreeInspection>("inspect_run_worktree", { runId }),
   integrateRun: (runId: number) => desktopInvoke<WorktreeActionResult>("integrate_run", { runId }),
   discardRun: (runId: number) => desktopInvoke<WorktreeActionResult>("discard_run", { runId }),
+  retryRunCleanup: (runId: number) => desktopInvoke<WorktreeActionResult>("retry_run_cleanup", { runId }),
   stop: (sessionId: number) => desktopInvoke<void>("stop_engine", { sessionId }),
   answerEngineQuestion: (runId: number, requestId: string | number, answer: unknown) => desktopInvoke<void>("answer_engine_question", { runId, requestId, answer }),
   resolveEditApproval: (runId: number, editId: string, accepted: boolean) => desktopInvoke<EditApprovalRecord>("resolve_edit_approval", { request: { runId, editId, accepted } }),
