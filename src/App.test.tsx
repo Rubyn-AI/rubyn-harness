@@ -1219,7 +1219,7 @@ describe("native product flow", () => {
         runId: 31,
         protocolSequence: 11,
         kind: "token/usage",
-        payload: { inputTokens: 40_000, cachedInputTokens: 30_000, outputTokens: 1_200, reasoningOutputTokens: 200, totalTokens: 41_200, source: "provider" },
+        payload: { inputTokens: 40_000, cachedInputTokens: 30_000, outputTokens: 1_200, reasoningOutputTokens: 200, totalTokens: 41_200, efficiencySavedTokens: 450, savings: { tool_output_compression: 300, context_compaction: 150 }, source: "rubyn" },
         raw: "",
         createdAt: 11,
       }],
@@ -1230,8 +1230,13 @@ describe("native product flow", () => {
     await screen.findByText("ledger is the source of truth.", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
 
-    expect(await screen.findByText(/Provider usage · 41.2K total · 40K input · 1.2K output · 200 reasoning/)).toBeInTheDocument();
-    expect(screen.getByText(/Rubyn efficiency · 30K cached input tokens reused \(75%\)/)).toBeInTheDocument();
+    expect(await screen.findByText("41.2K tokens used")).toBeInTheDocument();
+    expect(screen.getByText(/40K input · 1.2K output · 200 reasoning/)).toBeInTheDocument();
+    expect(screen.getByText("Rubyn saved 450 context tokens through tool output and context compaction.")).toBeInTheDocument();
+    expect(screen.getByText("Provider cache reused 30K input tokens (75%).")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(await screen.findByLabelText("Run token usage")).toHaveTextContent("41.2K tokens used");
   });
 
   it("keeps a followed conversation scrolled to its newest message", async () => {

@@ -30,3 +30,8 @@ Exercise every approved beta journey from clean or deliberately degraded state, 
 - Invalid or newer state must fail closed with recovery guidance and preserve recoverable evidence.
 - The acceptance record must identify the exact app, engine, fixture, and state-schema revisions used.
 
+### 7.5 Usage and efficiency evidence
+
+- Every conversation and retained run review must show cumulative provider-reported input, output, reasoning, and total token usage when the provider supplies it.
+- Rubyn must report measured context savings separately from provider cache reuse; the UI must not present cache reuse or an invented price estimate as Rubyn-created token savings.
+- Usage and savings events must remain durable with the run while obeying the existing bounded event-retention policy.

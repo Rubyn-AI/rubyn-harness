@@ -31,3 +31,20 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - Runtime health and application-state health now initialize independently. A state failure keeps a healthy Rubyn runtime marked ready and renders dedicated, actionable recovery guidance.
 - A checked-in, path-free schema-6 fixture upgrades to schema 9, retains its model preference, and preserves the original fixture byte-for-byte as the backup.
 - Rust: 63 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 68-test suite.
+
+## Isolated acceptance run
+
+- `pnpm acceptance:create` creates a non-pushable Rails clone, an isolated and host-validated Harness app-data directory, and a mode-0600 manifest with A–G evidence slots.
+- Five fixture/acceptance contract tests passed, including existing-destination refusal and refusal outside system temporary storage.
+- The real `rubyn-test` checkout remained at `ab0f6b10bfebadf5c5f401cf237ce3f347db1ce3` with the same five pre-existing status entries after preparation.
+- The first clean manifest recorded Harness 0.1.15, schema 9, the exact Harness and engine commits, the prepared fixture commit, disabled push URL, and source-status SHA-256.
+
+## Token usage and efficiency
+
+- Codex cumulative usage remains provider-reported and privacy-minimized; account metadata and thread identity are not retained in usage events.
+- Rubyn-provider chats now emit cumulative input, cached-input, cache-write, output, and total tokens.
+- Rubyn measures tokens removed by tool-output compression and context compaction. The UI reports these as Rubyn savings and reports provider cache reuse separately.
+- The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
+- Frontend: 68 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,014 raw / 232,394 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
+- Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
+- Rust: 63 tests passed with formatting and strict Clippy.

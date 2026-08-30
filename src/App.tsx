@@ -747,7 +747,7 @@ function Runs() {
       {fanoutPlanning && <div className="fanout-preflight"><div><strong>Choose parallel tasks</strong><small>{fanoutCapacity} slot{fanoutCapacity === 1 ? "" : "s"} available · isolated worktrees · Rubyn Code · provider cost unavailable</small></div><div className="fanout-choices">{readyTasks.map((task) => { const checked = fanoutSelected.includes(task.id); const full = !checked && fanoutSelected.length >= fanoutCapacity; return <label key={task.id}><input type="checkbox" checked={checked} disabled={full} onChange={() => setFanoutSelected((current) => checked ? current.filter((id) => id !== task.id) : [...current, task.id])} /><span><strong>{task.title}</strong><small>{task.dependsOn.length ? "Dependencies satisfied" : "No dependencies"}</small></span></label>; })}</div><footer><span>No tasks launch until you confirm this exact selection.</span><div><button className="button quiet compact" onClick={() => setFanoutPlanning(false)}>Cancel</button><button className="button primary compact" onClick={() => void fanOut()} disabled={!fanoutSelected.length || launching}>Launch {fanoutSelected.length || "selected"}</button></div></footer></div>}
       <div className="chat-layout conversation-shell">
         {selected ? <article className="chat-thread">
-          <header><div><span className={`pulse ${statusOf(selected)}`} /><strong>{conversationTitle(selected, 80)}</strong><small>Conversation · {runLabel(selected)}{selected.background ? " · background task" : ""}</small>{tokenUsage ? <small className="conversation-usage">Provider usage · {formatTokenCount(tokenUsage.totalTokens)} total · {formatTokenCount(tokenUsage.inputTokens)} input · {formatTokenCount(tokenUsage.outputTokens)} output{tokenUsage.reasoningOutputTokens ? ` · ${formatTokenCount(tokenUsage.reasoningOutputTokens)} reasoning` : ""}<br />Rubyn efficiency · {formatTokenCount(tokenUsage.cachedInputTokens)} cached input tokens reused ({tokenUsage.cacheReusePercent}%)</small> : <small className="conversation-usage unavailable">Provider usage unavailable for this conversation</small>}</div><div>{turnActive ? <button className="button danger compact" onClick={() => void cancel(selected)}><CircleStop size={14} />Stop turn</button> : selected.running ? <button className="button primary compact" onClick={() => void cancel(selected)}><Check size={14} />Finish conversation</button> : <button className="button quiet compact" onClick={() => selectRun(selected.id)}><ShieldCheck size={14} />Review changes</button>}</div></header>
+          <header><div><span className={`pulse ${statusOf(selected)}`} /><strong>{conversationTitle(selected, 80)}</strong><small>Conversation · {runLabel(selected)}{selected.background ? " · background task" : ""}</small><RunUsageSummary usage={tokenUsage} /></div><div>{turnActive ? <button className="button danger compact" onClick={() => void cancel(selected)}><CircleStop size={14} />Stop turn</button> : selected.running ? <button className="button primary compact" onClick={() => void cancel(selected)}><Check size={14} />Finish conversation</button> : <button className="button quiet compact" onClick={() => selectRun(selected.id)}><ShieldCheck size={14} />Review changes</button>}</div></header>
           <div ref={messageViewportRef} className="messages" aria-label="Conversation messages" aria-live="polite" onScroll={(event) => { const viewport = event.currentTarget; followLatestMessageRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 80; }}>{!hasPersistedInitialMessage && <ChatBubble role="user" text={selected.prompt} />}<ConversationTimeline events={selectedEvents} runId={selected.id} turnActive={turnActive} onAnswered={() => setNotice("Answer delivered to Rubyn.")} /></div>
           {pendingApprovals.length > 0 && <div className="edit-approval-stack" aria-label="Pending approvals">{pendingApprovals.map((approval) => { const command = approval.approvalKind === "commandExecution"; return <section className="edit-approval" key={approval.id}><header><div><span>Approval required · {command ? "command" : approval.editType}</span><strong>{command ? `Working directory: ${approval.path}` : approval.path}</strong></div><FileCode2 size={17} /></header><pre>{approval.content}</pre><footer><span>{command ? "Only this displayed command will be authorized." : "The worktree is unchanged until you approve."}</span><div><button className="button quiet compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, false)}>Deny</button><button className="button primary compact" disabled={Boolean(resolvingApproval)} onClick={() => void resolveApproval(approval, true)}><Check size={14} />{command ? "Run command" : "Approve edit"}</button></div></footer></section>; })}</div>}
           {!hasTerminalLifecycle(selected.lifecycle) ? <form className="chat-composer" onSubmit={reply}><AttachmentTray attachments={replyAttachments} remove={(path) => setConversationAttachments(selected.id, replyAttachments.filter((item) => item.path !== path))} /><textarea aria-label="Message Rubyn" value={message} onChange={(event) => setConversationDraft(selected.id, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={turnActive ? "Queue guidance while Rubyn works…" : selected.outcome === "failed" ? "Retry with a connected model…" : "Continue this conversation…"} rows={3} /><div className="composer-actions"><button type="button" className="attach-button" aria-label="Attach images or files" onClick={() => void pickAttachments(replyAttachments, (items) => setConversationAttachments(selected.id, items))}><Paperclip size={17} />Attach</button><button className="button primary" disabled={(!message.trim() && !replyAttachments.length) || (!selected.running && activeCount >= parallelLimit) || engineState !== "ready" || !selectedModel}><ArrowUpRight size={16} />{turnActive ? "Queue" : selected.outcome === "failed" ? "Retry" : "Continue"}</button></div></form> : <div className="chat-ended">This worktree has already been {statusOf(selected)}.</div>}
@@ -773,6 +773,8 @@ interface TokenUsageSummary {
   reasoningOutputTokens: number;
   totalTokens: number;
   cacheReusePercent: number;
+  efficiencySavedTokens: number;
+  savings: Record<string, number>;
 }
 
 function latestTokenUsage(events: Array<{ kind: string; payload: unknown }>): TokenUsageSummary | undefined {
@@ -784,7 +786,13 @@ function latestTokenUsage(events: Array<{ kind: string; payload: unknown }>): To
   const outputTokens = Number(usage.outputTokens);
   const reasoningOutputTokens = Number(usage.reasoningOutputTokens);
   const totalTokens = Number(usage.totalTokens);
-  if (![inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens].every(Number.isFinite)) return undefined;
+  const efficiencySavedTokens = usage.efficiencySavedTokens === undefined ? 0 : Number(usage.efficiencySavedTokens);
+  const savings = usage.savings && typeof usage.savings === "object"
+    ? Object.fromEntries(Object.entries(usage.savings as Record<string, unknown>)
+      .map(([feature, tokens]) => [feature, Number(tokens)])
+      .filter((entry): entry is [string, number] => Number.isFinite(entry[1]) && entry[1] >= 0))
+    : {};
+  if (![inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens, efficiencySavedTokens].every(Number.isFinite)) return undefined;
   return {
     inputTokens,
     cachedInputTokens,
@@ -792,11 +800,27 @@ function latestTokenUsage(events: Array<{ kind: string; payload: unknown }>): To
     reasoningOutputTokens,
     totalTokens,
     cacheReusePercent: inputTokens > 0 ? Math.min(100, Math.round((cachedInputTokens / inputTokens) * 100)) : 0,
+    efficiencySavedTokens,
+    savings,
   };
 }
 
 function formatTokenCount(value: number): string {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function savingsFeatureLabel(feature: string): string {
+  const labels: Record<string, string> = {
+    tool_output_compression: "tool output",
+    context_compaction: "context compaction",
+  };
+  return labels[feature] || feature.replaceAll("_", " ");
+}
+
+function RunUsageSummary({ usage }: { usage?: TokenUsageSummary }) {
+  if (!usage) return <div className="run-usage unavailable"><strong>Token usage unavailable</strong><small>This provider has not reported usage for this run.</small></div>;
+  const savings = Object.entries(usage.savings).filter(([, tokens]) => tokens > 0);
+  return <div className="run-usage" aria-label="Run token usage"><strong>{formatTokenCount(usage.totalTokens)} tokens used</strong><span>{formatTokenCount(usage.inputTokens)} input · {formatTokenCount(usage.outputTokens)} output{usage.reasoningOutputTokens ? ` · ${formatTokenCount(usage.reasoningOutputTokens)} reasoning` : ""}</span>{usage.efficiencySavedTokens > 0 && <small>Rubyn saved {formatTokenCount(usage.efficiencySavedTokens)} context tokens{savings.length ? ` through ${savings.map(([feature]) => savingsFeatureLabel(feature)).join(" and ")}` : ""}.</small>}{usage.cachedInputTokens > 0 && <small>Provider cache reused {formatTokenCount(usage.cachedInputTokens)} input tokens ({usage.cacheReusePercent}%).</small>}</div>;
 }
 
 function eventAttachmentSummaries(event: { payload: unknown }): { name: string; kind: string }[] {
@@ -1004,7 +1028,7 @@ function Skills() {
 }
 
 function Review() {
-  const { project, projectData, selectedRunId, selectRun, setNotice } = useHarnessStore();
+  const { project, projectData, runEvents, selectedRunId, selectRun, setNotice } = useHarnessStore();
   const refresh = useProjectRefresh();
   const [inspection, setInspection] = useState<RunWorktreeInspection>();
   const [loading, setLoading] = useState(false);
@@ -1016,6 +1040,15 @@ function Review() {
   const selectedId = selected?.id;
   const selectedRunning = selected?.running;
   const selectedLifecycle = selected?.lifecycle;
+  const tokenUsage = selected ? latestTokenUsage(runEvents[selected.id] || []) : undefined;
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const cursor = useHarnessStore.getState().eventCursors[selectedId] || 0;
+    harnessBridge.pollRunEvents(selectedId, cursor).then((batch) => {
+      useHarnessStore.getState().appendRunEvents(selectedId, batch.events, batch.nextEventId);
+    }).catch(() => undefined);
+  }, [selectedId]);
 
   useEffect(() => {
     setInspection(undefined);
@@ -1076,6 +1109,7 @@ function Review() {
         <aside className="review-notes">
           <Kicker>Worktree disposition</Kicker><h2>{conversationTitle(selected, 90)}</h2>
           <dl className="run-facts"><div><dt>Status</dt><dd>{runLabel(selected)}</dd></div><div><dt>Base</dt><dd>{selected.baseCommit.slice(0, 12) || "unknown"}</dd></div><div><dt>Files</dt><dd>{inspection?.status.files.length ?? "—"}</dd></div></dl>
+          <RunUsageSummary usage={tokenUsage} />
           {inspection && <div className={`integration-readiness ${inspection.readiness.blockers.length ? "blocked" : "ready"}`}><strong>{inspection.readiness.blockers.length ? "Integration blocked" : "Source ready"}</strong><dl><div><dt>Source HEAD</dt><dd>{inspection.readiness.sourceHead.slice(0, 12)}</dd></div><div><dt>Source clean</dt><dd>{inspection.readiness.sourceClean ? "Yes" : "No"}</dd></div><div><dt>Matches run base</dt><dd>{inspection.readiness.sourceMatchesBase ? "Yes" : "No"}</dd></div></dl>{inspection.readiness.blockers.map((blocker) => <p key={blocker}>{blocker}</p>)}{!inspection.readiness.blockers.length && !changedFileCount && <p>This run has no changes to integrate. Discard it when you no longer need the worktree.</p>}</div>}
           <p className="review-path">{selected.worktreePath}</p>
           {actionable && confirmingIntegration && <div className="integration-confirm" role="alert"><strong>Integrate this reviewed worktree?</strong><p>{changedFileCount} changed {changedFileCount === 1 ? "file" : "files"} will be committed into {project.path}. Native checks will run again before the source changes.</p><div><button className="button primary compact" onClick={() => void integrate()} disabled={acting}>{acting ? "Integrating…" : "Integrate reviewed changes"}</button><button className="button quiet compact" onClick={() => setConfirmingIntegration(false)} disabled={acting}>Cancel</button></div></div>}
