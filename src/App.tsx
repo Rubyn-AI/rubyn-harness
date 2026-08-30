@@ -120,7 +120,12 @@ function FirstLaunchDisclosure({ state, onContinue }: { state: LocalAppState; on
 }
 
 function ProjectTrustDialog({ project, engineReady, providerReady, onCancel, onConfirm, busy }: { project: ProjectSummary; engineReady: boolean; providerReady: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
-  return <div className="modal-backdrop trust-backdrop" role="presentation"><section className="trust-dialog" role="dialog" aria-modal="true" aria-labelledby="trust-project-title"><header><span className="trust-mark"><ShieldCheck size={20} /></span><div><Kicker>Repository trust</Kicker><h2 id="trust-project-title">Trust {project.name}?</h2></div></header><p>Rubyn will be allowed to create isolated worktrees and run approved model work for this repository.</p><dl><div><dt>Canonical path</dt><dd>{project.path}</dd></div><div><dt>Project kind</dt><dd>{project.isRails ? "Rails" : project.isRuby ? "Ruby" : "Git"}</dd></div><div><dt>Git root</dt><dd>{project.gitRoot || "Not available"}</dd></div><div><dt>Rubyn instructions</dt><dd>{project.hasRubynInstructions ? "RUBYN.md detected" : "None detected"}</dd></div><div><dt>Native engine</dt><dd>{engineReady ? "Ready" : "Needs setup in Project runtime"}</dd></div><div><dt>Model provider</dt><dd>{providerReady ? "Ready" : "Connect one in Models & accounts"}</dd></div></dl><small>Only continue if you know and trust this repository and its configuration.</small><footer><button className="button quiet" onClick={onCancel} disabled={busy}>Cancel</button><button className="button primary" onClick={onConfirm} disabled={busy}>{busy ? "Opening…" : "Trust and open"}</button></footer></section></div>;
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onCancel(); };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [busy, onCancel]);
+  return <div className="modal-backdrop trust-backdrop" role="presentation"><section className="trust-dialog" role="dialog" aria-modal="true" aria-labelledby="trust-project-title"><header><span className="trust-mark"><ShieldCheck size={20} /></span><div><Kicker>Repository trust</Kicker><h2 id="trust-project-title">Trust {project.name}?</h2></div></header><p>Rubyn will be allowed to create isolated worktrees and run approved model work for this repository.</p><dl><div><dt>Canonical path</dt><dd>{project.path}</dd></div><div><dt>Project kind</dt><dd>{project.isRails ? "Rails" : project.isRuby ? "Ruby" : "Git"}</dd></div><div><dt>Git root</dt><dd>{project.gitRoot || "Not available"}</dd></div><div><dt>Rubyn instructions</dt><dd>{project.hasRubynInstructions ? "RUBYN.md detected" : "None detected"}</dd></div><div><dt>Native engine</dt><dd>{engineReady ? "Ready" : "Needs setup in Project runtime"}</dd></div><div><dt>Model provider</dt><dd>{providerReady ? "Ready" : "Connect one in Models & accounts"}</dd></div></dl><small>Only continue if you know and trust this repository and its configuration.</small><footer><button autoFocus className="button quiet" onClick={onCancel} disabled={busy}>Cancel</button><button className="button primary" onClick={onConfirm} disabled={busy}>{busy ? "Opening…" : "Trust and open"}</button></footer></section></div>;
 }
 
 function projectIsTrusted(state: LocalAppState | undefined, path: string) {
@@ -1547,7 +1552,7 @@ export function App() {
       trapModalFocus(event);
       const state = useHarnessStore.getState();
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); state.setCommandOpen(true); }
-      if (event.key === "Escape") { state.setCommandOpen(false); state.setMobileOpen(false); setProjectMenuOpen(false); }
+      if (event.key === "Escape") { state.setCommandOpen(false); state.setMobileOpen(false); setProjectMenuOpen(false); setPendingTrust(undefined); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

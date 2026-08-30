@@ -909,9 +909,10 @@ describe("native product flow", () => {
     expect(screen.getAllByText(project.path)).toHaveLength(2);
     expect(screen.getByText("RUBYN.md detected")).toBeInTheDocument();
     expect(native.projectData).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
     expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("heading", { name: "Trust ledger?" })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Trust ledger?" })).not.toBeInTheDocument());
     expect(native.trustProject).not.toHaveBeenCalled();
     expect(native.projectData).not.toHaveBeenCalled();
   });
