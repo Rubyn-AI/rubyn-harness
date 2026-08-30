@@ -21,9 +21,10 @@
 
 ## [ ] 4. Produce the external beta artifact
 
-- [ ] 4.1 Install a valid Developer ID Application identity and notarization credentials. (refs Req 6.3)
-- [ ] 4.2 Tag the release commit and run the trusted release command. (refs Req 6.1, Req 6.3)
-- [ ] 4.3 Verify the signed DMG on a clean macOS account and record acceptance. (refs Req 6.3, Req 6.4)
+- [x] 4.1 Install and verify a valid Developer ID Application identity. (refs Req 6.3)
+- [ ] 4.2 Configure one complete notarization credential set. (refs Req 6.3)
+- [ ] 4.3 Tag the release commit and run the trusted release command. (refs Req 6.1, Req 6.3)
+- [ ] 4.4 Verify the signed DMG on a clean macOS account and record acceptance. (refs Req 6.3, Req 6.4)
 
 ## [x] 5. Close runtime distribution decision
 

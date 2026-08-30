@@ -84,5 +84,5 @@ The packaged app could be launched with isolated state, but the current console 
 ## Distribution status
 
 - The current source builds both a universal `Rubyn Harness.app` and `Rubyn Harness_0.1.15_universal.dmg`.
-- The local app is linker/ad-hoc signed only. `spctl` rejects it with `source=no usable signature`, as required for an unsigned artifact.
-- External beta distribution remains blocked on a real Apple Developer ID Application identity and notarization credentials. The release command is fail-closed and must not be bypassed.
+- A valid Developer ID Application identity now signs both the local app and DMG. Strict app verification passes, the app carries hardened runtime, and the DMG satisfies its designated requirement.
+- No complete notarization credential set is available. `spctl` rejects the app with `source=Unnotarized Developer ID`, so external beta distribution remains blocked and the release command must not be bypassed.
