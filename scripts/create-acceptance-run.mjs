@@ -99,6 +99,7 @@ export function createAcceptanceRun(options) {
         pushUrl: git(["remote", "get-url", "--push", "origin"], projectPath),
       },
       paths: { project: projectPath, appData: appDataPath },
+      status: "in-progress",
       checkpoints: Object.fromEntries("ABCDEFG".split("").map((name) => [name, { status: "pending", evidence: [] }])),
     };
     writeFileSync(join(destination, "acceptance-run.json"), JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });

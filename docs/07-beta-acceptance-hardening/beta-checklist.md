@@ -2,6 +2,8 @@
 
 Use one fresh `pnpm acceptance:create` directory for the release candidate. Never run acceptance against the source `rubyn-test` checkout or real Harness application data.
 
+After each native journey, record the result with `pnpm acceptance:record -- --run <acceptance-directory> --checkpoint A --status passed --evidence "what was directly observed"`. The recorder requires evidence, refuses a stale Harness or engine commit, writes atomically with mode 0600, and marks the run passed only after A–G all pass.
+
 ## Record the candidate
 
 - [ ] `acceptance-run.json` identifies the exact Harness commit, engine commit, state schema, fixture revision, and isolated paths.

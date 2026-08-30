@@ -52,12 +52,13 @@ The packaged app could be launched with isolated state, but the current console 
 - A corrupt primary with a valid backup restores the primary without rotating corrupt bytes over the known-good backup.
 - Runtime health and application-state health now initialize independently. A state failure keeps a healthy Rubyn runtime marked ready and renders dedicated, actionable recovery guidance.
 - A checked-in, path-free schema-6 fixture upgrades to schema 9, retains its model preference, and preserves the original fixture byte-for-byte as the backup.
-- Rust: 63 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 68-test suite.
+- Rust: 66 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 74-test suite.
 
 ## Isolated acceptance run
 
 - `pnpm acceptance:create` creates a non-pushable Rails clone, an isolated and host-validated Harness app-data directory, and a mode-0600 manifest with A–G evidence slots.
-- Five fixture/acceptance contract tests passed, including existing-destination refusal and refusal outside system temporary storage.
+- Ten fixture/acceptance contract tests passed, including existing-destination refusal, refusal outside system temporary storage, atomic evidence recording, stale/dirty candidate refusal, and completion only after all A–G checkpoints carry evidence.
+- `pnpm acceptance:record` appends timestamped evidence without hand-editing the manifest. It requires a clean Harness and engine at the recorded commits and cannot mark the overall run passed while any checkpoint remains incomplete.
 - The real `rubyn-test` checkout remained at `ab0f6b10bfebadf5c5f401cf237ce3f347db1ce3` with the same five pre-existing status entries after preparation.
 - The first clean manifest recorded Harness 0.1.15, schema 9, the exact Harness and engine commits, the prepared fixture commit, disabled push URL, and source-status SHA-256.
 

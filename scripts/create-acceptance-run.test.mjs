@@ -58,6 +58,7 @@ test("creates an isolated, traceable acceptance run without changing its source"
   assert.equal(manifest.paths.appData, join(destination, "rubyn-harness-test-app-data"));
   assert.equal(lstatSync(manifest.paths.appData).isDirectory(), true);
   assert.equal(statSync(manifestPath).mode & 0o777, 0o600);
+  assert.equal(manifest.status, "in-progress");
   assert.deepEqual(Object.keys(manifest.checkpoints), ["A", "B", "C", "D", "E", "F", "G"]);
   assert.equal(Object.values(manifest.checkpoints).every(({ status }) => status === "pending"), true);
   assert.equal(git(manifest.paths.project, "status", "--porcelain"), "");
