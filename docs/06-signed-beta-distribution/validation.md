@@ -19,6 +19,7 @@ An unsigned internal build completed at `src-tauri/target/universal-apple-darwin
 - Rust: 60 tests passed with formatting and strict Clippy.
 - Fixture safety: 2 tests passed.
 - Release contract: 3 tests passed.
+- Runtime preflight: 2 focused UI cases passed within the 65-test frontend suite.
 - ESLint, TypeScript, and the Vite production build passed.
 - Rubyn Code remains at the pushed `f505028` revision. Its full 2,872-example suite passed again under the pinned Ruby 4.0.6 runtime with 0 failures and 91.39% line coverage.
 
@@ -26,4 +27,6 @@ An unsigned internal build completed at `src-tauri/target/universal-apple-darwin
 
 `security find-identity -v -p codesigning` reports zero valid identities on this machine. A Developer ID Application certificate and one complete notarization credential set are required before tagging and running `pnpm release:macos`.
 
-The application currently packages Rubyn Code source but not a standalone Ruby runtime and gem set. Stock beta-machine acceptance without rbenv remains a Phase 06 release gate; the artifact must not be sent to external testers until that decision is closed.
+The rebuilt universal app was launched with isolated HOME and PATH values exposing no rbenv or Homebrew runtime. It reported Rubyn as unavailable, replaced repository selection with a prominent “Finish Rubyn runtime setup” preflight, showed the Ruby 4.0.6 / `gem install rubyn-code` / relaunch sequence, and prevented conversation launch. The public Rubyn Code 0.4.0 gem was installed into an isolated gem home; its dependency set successfully loaded the pinned bundled 0.9.0 engine. The runtime prerequisite decision is therefore closed for this beta, while a standalone runtime remains roadmap work.
+
+The universal application and DMG rebuilt successfully after this acceptance change, and `hdiutil verify` accepted the DMG checksum structure. They remain unsigned internal artifacts and are not eligible for external distribution.

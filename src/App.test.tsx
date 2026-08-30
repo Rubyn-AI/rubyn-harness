@@ -587,6 +587,44 @@ describe("native product flow", () => {
     expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
   });
 
+  it("blocks the empty-project call to action when the native runtime is unavailable", async () => {
+    native.engineHealth.mockResolvedValue({
+      available: true,
+      healthy: false,
+      source: "bundled",
+      executable: "/app/engine/rubyn-code",
+      detail: "Bundled Rubyn Code requires Ruby 4.0.2+ with its runtime gems.",
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Finish Rubyn runtime setup" })).toBeInTheDocument();
+    expect(screen.getByText(/requires Ruby 4\.0\.2\+/i)).toBeInTheDocument();
+    expect(screen.getByText("gem install rubyn-code")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Choose project/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open project runtime" }));
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+  });
+
+  it("disables new conversations when a remembered project has no runtime", async () => {
+    native.engineHealth.mockResolvedValue({
+      available: true,
+      healthy: false,
+      source: "bundled",
+      executable: "/app/engine/rubyn-code",
+      detail: "Bundled Rubyn Code requires Ruby 4.0.2+ with its runtime gems.",
+    });
+    native.appState.mockResolvedValue({ ...emptyState, recentProjects: [{ path: project.path, name: project.name }] });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Talk to Rubyn" }));
+    expect(await screen.findByRole("heading", { name: "What should Rubyn work on?" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "Make a change" } });
+    expect(screen.getByRole("button", { name: "Start conversation" })).toBeDisabled();
+  });
+
   it("treats cleanup-pending worktree dispositions as terminal", async () => {
     native.appState.mockResolvedValue({
       ...emptyState,

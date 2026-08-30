@@ -29,6 +29,7 @@ Produce one reproducible universal macOS beta artifact whose version, source, en
 - The release path runs the full frontend, fixture, release-contract, Rust, and Rubyn Code checks.
 - It emits a SHA-256 checksum and a machine-readable manifest with version, tag, Harness commit, engine commit, architectures, minimum OS, and toolchains.
 - Unsigned or ad-hoc local bundles are never described as beta release artifacts.
+- Because a standalone Ruby runtime is out of scope, the beta must block work and show an actionable Ruby 4.0.6 plus runtime-gem prerequisite when no compatible runtime is available.
 
 ## Out of scope
 

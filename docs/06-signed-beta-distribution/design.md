@@ -18,6 +18,12 @@ The script reads credential presence but never logs values. Tauri receives crede
 
 After verification, the command writes a checksum file beside the DMG and a JSON release manifest. The manifest deliberately contains no machine path, identity, account, or secret.
 
+## Runtime prerequisite
+
+The first beta packages the pinned Rubyn Code 0.9.0 source but deliberately does not package Ruby. A tester installs Ruby 4.0.6 and runs `gem install rubyn-code` with that Ruby; the public gem supplies the compatible runtime dependency set while Harness continues to execute its pinned bundled engine source.
+
+Harness validates both the Ruby version and the ability to load the bundled engine. With no compatible runtime it blocks the empty-project call to action, disables conversation launch for remembered projects, and displays the setup sequence before model-backed work can begin.
+
 ## Known external gate
 
-This machine currently has no Developer ID Application identity, so a genuinely signed and notarized artifact cannot be produced locally until Apple release authority is installed. The ordinary DMG remains an internal unsigned test build. Phase 07 must also decide whether the first beta requires Ruby 4.0.2 as a prerequisite or packages a standalone runtime.
+This machine currently has no Developer ID Application identity, so a genuinely signed and notarized artifact cannot be produced locally until Apple release authority is installed. The ordinary DMG remains an internal unsigned test build.

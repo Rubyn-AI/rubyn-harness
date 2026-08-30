@@ -89,6 +89,12 @@ pnpm install
 pnpm tauri dev
 ```
 
+## macOS beta prerequisite
+
+The current external beta packages Rubyn Code but does not package Ruby itself. Before opening the beta, install Ruby 4.0.6 with rbenv or Homebrew, use that Ruby to run `gem install rubyn-code`, and then launch Rubyn Harness. The installed gem supplies the runtime dependency set; Harness runs its pinned bundled Rubyn Code source.
+
+If setup is incomplete, Harness blocks new work before repository selection and shows these steps in the app. A standalone bundled Ruby runtime remains roadmap work.
+
 The browser-only development surface verifies that non-native launches fail
 closed. It does not simulate the app:
 

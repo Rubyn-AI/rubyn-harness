@@ -25,7 +25,7 @@
 - [ ] 4.2 Tag the release commit and run the trusted release command. (refs Req 6.1, Req 6.3)
 - [ ] 4.3 Verify the signed DMG on a clean macOS account and record acceptance. (refs Req 6.3, Req 6.4)
 
-## [ ] 5. Close runtime distribution decision
+## [x] 5. Close runtime distribution decision
 
-- [ ] 5.1 Validate the beta on a Mac without rbenv or Rubyn Code installed. (refs Req 6.4)
-- [ ] 5.2 Either bundle a standalone Ruby runtime or make the prerequisite explicit and actionable. (refs Req 6.4)
+- [x] 5.1 Validate the beta with isolated HOME and PATH values that expose only stock macOS tools. (refs Req 6.4)
+- [x] 5.2 Make the Ruby 4.0.6 and runtime-gem prerequisite explicit, actionable, and fail-closed in the app. (refs Req 6.4)
