@@ -1,15 +1,15 @@
 use crate::{
     domain::{
-        AgentProfile, CreateWayfinderTicketRequest, EditApprovalRecord, LocalAppState, ProjectData,
-        ProjectRecord, RunEventRecord, RunRecord, TaskRecord, TodoRecord,
-        UpdateWayfinderTicketRequest, WayfinderAnswer, WayfinderEvent, WayfinderMap,
+        AgentProfile, CreateWayfinderTicketRequest, DiagnosticStateSummary, EditApprovalRecord,
+        LocalAppState, ProjectData, ProjectRecord, RunEventRecord, RunRecord, TaskRecord,
+        TodoRecord, UpdateWayfinderTicketRequest, WayfinderAnswer, WayfinderEvent, WayfinderMap,
         WayfinderMapData, WayfinderQuestion, WayfinderTicket, WorkflowColumn,
     },
     engine::EngineEvent,
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -165,6 +165,46 @@ impl StateRepository {
 
     pub fn snapshot(&self) -> LocalAppState {
         self.database.app_state.clone()
+    }
+
+    pub fn diagnostic_summary(&self) -> DiagnosticStateSummary {
+        let mut lifecycle_counts = BTreeMap::new();
+        for run in &self.database.runs {
+            *lifecycle_counts.entry(run.lifecycle.clone()).or_insert(0) += 1;
+        }
+        DiagnosticStateSummary {
+            schema_version: self.database.version,
+            project_count: self.database.projects.len(),
+            trusted_project_count: self.database.app_state.trusted_project_paths.len(),
+            run_count: self.database.runs.len(),
+            running_run_count: self.database.runs.iter().filter(|run| run.running).count(),
+            lifecycle_counts,
+            pending_approval_count: self
+                .database
+                .approvals
+                .iter()
+                .filter(|approval| approval.status == "pending")
+                .count(),
+            wayfinder_map_count: self.database.wayfinder_maps.len(),
+        }
+    }
+
+    pub fn managed_worktree_inventory(&self) -> Vec<(PathBuf, PathBuf)> {
+        self.database
+            .runs
+            .iter()
+            .filter_map(|run| {
+                let project = self
+                    .database
+                    .projects
+                    .iter()
+                    .find(|project| project.id == run.project_id)?;
+                Some((
+                    PathBuf::from(&project.path),
+                    PathBuf::from(&run.worktree_path),
+                ))
+            })
+            .collect()
     }
 
     pub fn replace(&mut self, state: LocalAppState) -> Result<LocalAppState, StoreError> {
@@ -3711,6 +3751,49 @@ mod tests {
         for file in ["harness-database.json", "harness-database.backup.json"] {
             let contents = fs::read_to_string(directory.join(file)).unwrap();
             assert!(!contents.contains("credential-shaped data"));
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn diagnostic_summary_exposes_counts_without_project_or_conversation_content() {
+        let directory = test_directory("diagnostic-summary");
+        let project_path = directory.join("SOURCE_PATH_CANARY");
+        fs::create_dir_all(&project_path).unwrap();
+        let mut repository = StateRepository::open(&directory).unwrap();
+        let run = repository
+            .allocate_run(
+                &project_path,
+                &directory.join("worktrees/run-1/workspace"),
+                "base-canary".into(),
+                "TITLE_CANARY".into(),
+                "PROMPT_CANARY".into(),
+            )
+            .unwrap();
+        repository
+            .sync_run(
+                run.id,
+                false,
+                "failed",
+                None,
+                "STDOUT_CANARY",
+                "STDERR_CANARY",
+            )
+            .unwrap();
+
+        let summary = repository.diagnostic_summary();
+        assert_eq!(summary.run_count, 1);
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(serialized.contains("projectCount"));
+        for canary in [
+            "SOURCE_PATH_CANARY",
+            "TITLE_CANARY",
+            "PROMPT_CANARY",
+            "STDOUT_CANARY",
+            "STDERR_CANARY",
+            "base-canary",
+        ] {
+            assert!(!serialized.contains(canary));
         }
         fs::remove_dir_all(directory).unwrap();
     }

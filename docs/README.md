@@ -8,7 +8,7 @@ Rubyn Harness is targeting an external macOS beta for trusted local Ruby and Rai
 - [x] **02 — Beta Onboarding & Trust Gate:** Add first-launch trust disclosure, repository confirmation, prerequisite checks, and actionable setup failures.
 - [x] **03 — Durable Execution & Recovery:** Prove edit approvals, stop/retry, concurrency, restart, engine failure, and stale-state recovery.
 - [x] **04 — Safe Review & Integration:** Handle repository drift, conflicts, no-change runs, integration, discard, and cleanup recovery.
-- [ ] **05 — Privacy, Revocation & Diagnostics:** Add credential revocation, local-data removal, secret-safe logs, and sanitized diagnostics.
+- [x] **05 — Privacy, Revocation & Diagnostics:** Add credential revocation, local-data removal, secret-safe logs, and sanitized diagnostics.
 - [ ] **06 — Signed Beta Distribution:** Pin toolchains and produce versioned, signed, notarized macOS application and DMG releases.
 - [ ] **07 — Beta Acceptance & Hardening:** Run every approved journey from a clean install and close accessibility, performance, and release-checklist gaps.
 

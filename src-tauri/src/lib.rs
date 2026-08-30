@@ -5,28 +5,48 @@ mod store;
 
 use crate::{
     domain::{
-        AgentProfile, CreateAgentProfileRequest, CreateProjectTaskRequest,
+        AgentProfile, ClearLocalDataResult, CreateAgentProfileRequest, CreateProjectTaskRequest,
         CreateProjectTodoRequest, CreateSkillRequest, CreateWayfinderMapRequest,
         CreateWayfinderTicketRequest, CreateWorkflowColumnRequest, DeleteWorkflowColumnRequest,
-        EditApprovalRecord, EngineInfo, EngineSession, EngineSessionOutput, GitDiff, GitStatus,
-        LaunchEngineRequest, LocalAppState, ModelCatalog, ProjectData, ProjectRecord,
-        ProjectSummary, ResolveEditApprovalRequest, ResolveWayfinderTicketRequest, RunEventBatch,
-        RunRecord, RunWorktreeInspection, SendRunMessageRequest, SkillSummary, TaskRecord,
-        TodoRecord, UpdateAgentProfileRequest, UpdateConversationRequest, UpdateProjectTaskRequest,
-        UpdateProjectTodoRequest, UpdateWayfinderTicketRequest, UpdateWorkflowColumnRequest,
-        UpsertProviderRequest, WayfinderAnswer, WayfinderMap, WayfinderMapData, WayfinderTicket,
-        WorkflowColumn, WorktreeActionResult,
+        DiagnosticReportResult, DiagnosticStateSummary, EditApprovalRecord, EngineInfo,
+        EngineSession, EngineSessionOutput, GitDiff, GitStatus, LaunchEngineRequest, LocalAppState,
+        ModelCatalog, ProjectData, ProjectRecord, ProjectSummary, ResolveEditApprovalRequest,
+        ResolveWayfinderTicketRequest, RunEventBatch, RunRecord, RunWorktreeInspection,
+        SendRunMessageRequest, SkillSummary, TaskRecord, TodoRecord, UpdateAgentProfileRequest,
+        UpdateConversationRequest, UpdateProjectTaskRequest, UpdateProjectTodoRequest,
+        UpdateWayfinderTicketRequest, UpdateWorkflowColumnRequest, UpsertProviderRequest,
+        WayfinderAnswer, WayfinderMap, WayfinderMapData, WayfinderTicket, WorkflowColumn,
+        WorktreeActionResult,
     },
     engine::{EngineError, EngineLocation, EngineSupervisor},
     store::StateRepository,
 };
 use std::{
-    path::{Path, PathBuf},
+    fs::{self, OpenOptions},
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::Mutex,
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SanitizedDiagnostics {
+    generated_at: u64,
+    app_version: String,
+    operating_system: &'static str,
+    architecture: &'static str,
+    engine_healthy: bool,
+    engine_source: &'static str,
+    engine_version: Option<String>,
+    connected_provider_count: usize,
+    available_model_count: usize,
+    state: DiagnosticStateSummary,
+}
 
 #[derive(Default)]
 struct AppRuntime {
@@ -183,6 +203,46 @@ fn upsert_provider(app: AppHandle, request: UpsertProviderRequest) -> CommandRes
 }
 
 #[tauri::command]
+fn revoke_provider(app: AppHandle, provider: String) -> CommandResult<ModelCatalog> {
+    let provider = provider.trim().to_lowercase();
+    if provider == "codex" {
+        let executable = engine::codex_executable()
+            .map_err(|error| format!("Unable to revoke Codex access: {error}"))?;
+        let status = Command::new(executable)
+            .arg("logout")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|_| {
+                "Unable to run Codex logout. Try again from Models & accounts.".to_owned()
+            })?;
+        if !status.success() {
+            return Err(
+                "Codex logout did not complete. Your account may still be connected.".to_owned(),
+            );
+        }
+    } else {
+        let location =
+            engine_location(&app).ok_or_else(|| "Rubyn Code is not available".to_owned())?;
+        let result = engine::one_shot_rpc(
+            location,
+            "providers/remove",
+            serde_json::json!({"name": provider}),
+        )
+        .map_err(to_command_error)?;
+        if result.get("removed").and_then(serde_json::Value::as_bool) != Some(true) {
+            return Err(result
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Provider was not revoked")
+                .to_owned());
+        }
+    }
+    list_models(app)
+}
+
+#[tauri::command]
 fn get_chisel_mode(app: AppHandle) -> CommandResult<String> {
     let location = engine_location(&app).ok_or_else(|| "Rubyn Code is not available".to_owned())?;
     let result = engine::one_shot_rpc(
@@ -304,6 +364,178 @@ fn save_app_state(
 }
 
 #[tauri::command]
+fn create_sanitized_diagnostics(
+    app: AppHandle,
+    runtime: State<'_, AppRuntime>,
+) -> CommandResult<DiagnosticReportResult> {
+    let state = state_repository(&app, &runtime)?
+        .as_ref()
+        .expect("state repository is initialized")
+        .diagnostic_summary();
+    let engine = services::engine_info(bundled_engine_root(&app));
+    // Diagnostics must remain available when model discovery or the engine is failing.
+    let catalog = list_models(app.clone()).ok();
+    let created_at = now_millis();
+    let report = SanitizedDiagnostics {
+        generated_at: created_at,
+        app_version: app.package_info().version.to_string(),
+        operating_system: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        engine_healthy: engine.healthy,
+        engine_source: match engine.source {
+            domain::EngineSource::Bundled => "bundled",
+            domain::EngineSource::Installed => "installed",
+            domain::EngineSource::Unavailable => "unavailable",
+        },
+        engine_version: engine.version,
+        connected_provider_count: catalog
+            .as_ref()
+            .map_or(0, |catalog| catalog.connected_providers.len()),
+        available_model_count: catalog.as_ref().map_or(0, |catalog| catalog.models.len()),
+        state,
+    };
+    let directory = app_data_directory(&app)?.join("diagnostics");
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Unable to create the diagnostics directory.".to_owned())?;
+    let path = directory.join(format!("rubyn-diagnostics-{created_at}.json"));
+    let contents = serde_json::to_vec_pretty(&report)
+        .map_err(|_| "Unable to prepare sanitized diagnostics.".to_owned())?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|_| "Unable to create the diagnostic report.".to_owned())?;
+    file.write_all(&contents)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "Unable to finish the diagnostic report.".to_owned())?;
+    Ok(DiagnosticReportResult {
+        path: path.to_string_lossy().into_owned(),
+        created_at,
+    })
+}
+
+#[tauri::command]
+fn clear_local_data(
+    app: AppHandle,
+    runtime: State<'_, AppRuntime>,
+) -> CommandResult<ClearLocalDataResult> {
+    let active = runtime
+        .engines
+        .lock()
+        .map_err(|_| "Engine supervisor is unavailable".to_owned())?
+        .sessions()
+        .into_iter()
+        .filter(|session| session.running)
+        .count();
+    if active > 0 {
+        return Err(format!(
+            "Stop {active} active Rubyn run{} before removing local data.",
+            if active == 1 { "" } else { "s" }
+        ));
+    }
+
+    let directory = app_data_directory(&app)?;
+    let runs_root = directory.join("worktrees");
+    let inventory = state_repository(&app, &runtime)?
+        .as_ref()
+        .expect("state repository is initialized")
+        .managed_worktree_inventory();
+    for (source, worktree) in inventory {
+        if worktree.exists() {
+            services::remove_isolated_worktree(&source, &worktree, &runs_root).map_err(|_| {
+                format!(
+                    "A managed worktree could not be removed: {}. Local state was retained so you can retry.",
+                    worktree.display()
+                )
+            })?;
+        }
+    }
+
+    let staging = directory.join(format!("clear-staging-{}", now_millis()));
+    fs::create_dir(&staging)
+        .map_err(|_| "Unable to prepare local-data removal. Nothing was removed.".to_owned())?;
+    let mut moved = Vec::new();
+    {
+        let mut guard = runtime
+            .store
+            .lock()
+            .map_err(|_| "Local state is unavailable".to_owned())?;
+        *guard = None;
+        for name in [
+            "harness-database.json",
+            "harness-database.backup.json",
+            "state.json",
+            "diagnostics",
+            "worktrees",
+        ] {
+            let source = directory.join(name);
+            if !source.exists() {
+                continue;
+            }
+            let destination = staging.join(name);
+            if fs::rename(&source, &destination).is_err() {
+                for (original, staged) in moved.iter().rev() {
+                    let _ = fs::rename(staged, original);
+                }
+                let _ = fs::remove_dir(&staging);
+                *guard = Some(StateRepository::open(&directory).map_err(to_command_error)?);
+                return Err("Unable to remove all local data. Existing state was restored so you can retry.".to_owned());
+            }
+            moved.push((source, destination));
+        }
+        match StateRepository::open(&directory) {
+            Ok(repository) => *guard = Some(repository),
+            Err(_) => {
+                let mut restored = true;
+                for (original, staged) in moved.iter().rev() {
+                    if fs::rename(staged, original).is_err() {
+                        restored = false;
+                    }
+                }
+                let _ = fs::remove_dir(&staging);
+                *guard = StateRepository::open(&directory).ok();
+                return Err(if restored && guard.is_some() {
+                    "Unable to initialize cleared local state. Existing state was restored so you can retry."
+                        .to_owned()
+                } else {
+                    "Unable to initialize cleared local state, and automatic restoration was incomplete. No source repository files were changed."
+                        .to_owned()
+                });
+            }
+        }
+    }
+
+    let mut pending = Vec::new();
+    let stale_staging = fs::read_dir(&directory)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("clear-staging-"))
+        })
+        .collect::<Vec<_>>();
+    for path in stale_staging {
+        if fs::remove_dir_all(&path).is_err() {
+            pending.push(path.to_string_lossy().into_owned());
+        }
+    }
+    let app_state = state_repository(&app, &runtime)?
+        .as_ref()
+        .expect("state repository is initialized")
+        .snapshot();
+    Ok(ClearLocalDataResult {
+        app_state,
+        cleanup_pending: !pending.is_empty(),
+        retained_paths: pending,
+    })
+}
+
+#[tauri::command]
 fn launch_engine(
     app: AppHandle,
     runtime: State<'_, AppRuntime>,
@@ -331,11 +563,7 @@ fn launch_engine(
     if engines.at_capacity(parallel_limit) {
         return Err("Parallel run limit reached; wait for an active run to finish".to_owned());
     }
-    let runs_root = app
-        .path()
-        .app_data_dir()
-        .map_err(to_command_error)?
-        .join("worktrees");
+    let runs_root = app_data_directory(&app)?.join("worktrees");
     let allocation =
         services::create_isolated_worktree(&project, &runs_root).map_err(to_command_error)?;
     let location = match engine_location(&app) {
@@ -1190,11 +1418,44 @@ fn sync_runtime_state(app: &AppHandle, runtime: &AppRuntime) -> CommandResult<Ve
 }
 
 fn runs_root(app: &AppHandle) -> CommandResult<PathBuf> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(to_command_error)?
-        .join("worktrees"))
+    Ok(app_data_directory(app)?.join("worktrees"))
+}
+
+fn app_data_directory(app: &AppHandle) -> CommandResult<PathBuf> {
+    let Ok(override_path) = std::env::var("RUBYN_HARNESS_TEST_APP_DATA_DIR") else {
+        return app.path().app_data_dir().map_err(to_command_error);
+    };
+    let candidate = PathBuf::from(override_path);
+    if safe_test_app_data_directory(&candidate) {
+        Ok(candidate)
+    } else {
+        Err("The test application-data override is not a safe temporary directory.".to_owned())
+    }
+}
+
+fn safe_test_app_data_directory(candidate: &Path) -> bool {
+    let leaf_is_safe = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("rubyn-harness-test-"));
+    let components_are_safe = candidate.is_absolute()
+        && !candidate
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::CurDir));
+    let parent = candidate
+        .parent()
+        .and_then(|path| fs::canonicalize(path).ok());
+    let allowed_roots = [std::env::temp_dir(), PathBuf::from("/private/tmp")]
+        .into_iter()
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .collect::<Vec<_>>();
+    let parent_is_safe = parent
+        .as_ref()
+        .is_some_and(|parent| allowed_roots.iter().any(|root| parent.starts_with(root)));
+    let symlink_is_absent = fs::symlink_metadata(candidate)
+        .map(|metadata| !metadata.file_type().is_symlink())
+        .unwrap_or(true);
+    leaf_is_safe && components_are_safe && parent_is_safe && symlink_is_absent
 }
 
 fn state_repository<'a>(
@@ -1206,7 +1467,7 @@ fn state_repository<'a>(
         .lock()
         .map_err(|_| "Local state is unavailable".to_owned())?;
     if guard.is_none() {
-        let directory = app.path().app_data_dir().map_err(to_command_error)?;
+        let directory = app_data_directory(app)?;
         *guard = Some(StateRepository::open(directory).map_err(to_command_error)?);
     }
     Ok(guard)
@@ -1465,6 +1726,13 @@ fn to_command_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1473,6 +1741,7 @@ pub fn run() {
             engine_health,
             list_models,
             upsert_provider,
+            revoke_provider,
             get_chisel_mode,
             set_chisel_enabled,
             start_codex_login,
@@ -1483,6 +1752,8 @@ pub fn run() {
             get_git_diff,
             get_app_state,
             save_app_state,
+            create_sanitized_diagnostics,
+            clear_local_data,
             list_projects,
             get_project_data,
             create_project_task,
@@ -1574,5 +1845,37 @@ mod tests {
             .any(|model| model.model == "MiniMax-M3"));
         assert!(catalog.models.iter().any(|model| model.model == "my-model"));
         assert_eq!(catalog.active_model, "gpt-5.6-terra");
+    }
+
+    #[test]
+    fn test_app_data_override_accepts_only_named_directories_under_system_temp() {
+        let safe = std::env::temp_dir().join(format!("rubyn-harness-test-{}", std::process::id()));
+        assert!(safe_test_app_data_directory(&safe));
+        assert!(!safe_test_app_data_directory(Path::new(
+            "rubyn-harness-test-relative"
+        )));
+        assert!(!safe_test_app_data_directory(
+            &std::env::temp_dir().join("unrelated-app-data")
+        ));
+        assert!(!safe_test_app_data_directory(
+            &std::env::temp_dir()
+                .join("rubyn-harness-test-parent")
+                .join("..")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_app_data_override_rejects_symlink_targets() {
+        let suffix = format!("{}-symlink", std::process::id());
+        let target = std::env::temp_dir().join(format!("rubyn-harness-target-{suffix}"));
+        let candidate = std::env::temp_dir().join(format!("rubyn-harness-test-{suffix}"));
+        fs::create_dir_all(&target).expect("create symlink target");
+        std::os::unix::fs::symlink(&target, &candidate).expect("create app-data symlink");
+
+        assert!(!safe_test_app_data_directory(&candidate));
+
+        fs::remove_file(candidate).expect("remove app-data symlink");
+        fs::remove_dir(target).expect("remove symlink target");
     }
 }

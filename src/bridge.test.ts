@@ -48,7 +48,7 @@ describe("desktop bridge contract", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("maps provider discovery, encrypted provider setup, and Codex login", async () => {
+  it("maps provider discovery, encrypted setup, revocation, and Codex login", async () => {
     invoke.mockResolvedValue({ models: [], activeProvider: "anthropic", activeModel: "claude-sonnet-5", modelMode: "auto" });
 
     await harnessBridge.listModels();
@@ -60,13 +60,27 @@ describe("desktop bridge contract", () => {
       apiKey: "secret",
       models: ["MiniMax-M2.5"],
     });
+    await harnessBridge.revokeProvider("minimax");
     await harnessBridge.startCodexLogin();
 
     expect(invoke.mock.calls).toEqual([
       ["list_models", undefined],
       ["upsert_provider", { request: { name: "minimax", baseUrl: "https://api.minimax.io/v1", apiFormat: "openai", envKey: "MINIMAX_API_KEY", apiKey: "secret", models: ["MiniMax-M2.5"] } }],
+      ["revoke_provider", { provider: "minimax" }],
       ["start_codex_login", undefined],
     ]);
+  });
+
+  it("creates diagnostics through the native allowlisted report command", async () => {
+    invoke.mockResolvedValue({ path: "/app-data/diagnostics/report.json", createdAt: 42 });
+    await expect(harnessBridge.createSanitizedDiagnostics()).resolves.toEqual({ path: "/app-data/diagnostics/report.json", createdAt: 42 });
+    expect(invoke).toHaveBeenCalledWith("create_sanitized_diagnostics", undefined);
+  });
+
+  it("removes local data through one native fail-closed command", async () => {
+    invoke.mockResolvedValue({ appState: { onboardingVersion: 0 }, cleanupPending: false, retainedPaths: [] });
+    await harnessBridge.clearLocalData();
+    expect(invoke).toHaveBeenCalledWith("clear_local_data", undefined);
   });
 
   it("keeps the selected model when continuing a completed conversation", async () => {

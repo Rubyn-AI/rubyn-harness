@@ -22,6 +22,9 @@ const native = vi.hoisted(() => ({
   listModels: vi.fn(),
   upsertProvider: vi.fn(),
   startCodexLogin: vi.fn(),
+  revokeProvider: vi.fn(),
+  createSanitizedDiagnostics: vi.fn(),
+  clearLocalData: vi.fn(),
   getChiselMode: vi.fn(),
   setChiselEnabled: vi.fn(),
   appState: vi.fn(),
@@ -69,6 +72,9 @@ vi.mock("./bridge", async () => {
       listModels: native.listModels,
       upsertProvider: native.upsertProvider,
       startCodexLogin: native.startCodexLogin,
+      revokeProvider: native.revokeProvider,
+      createSanitizedDiagnostics: native.createSanitizedDiagnostics,
+      clearLocalData: native.clearLocalData,
       getChiselMode: native.getChiselMode,
       setChiselEnabled: native.setChiselEnabled,
       appState: native.appState,
@@ -256,6 +262,9 @@ beforeEach(() => {
     version: "0.1.0",
   });
   native.listModels.mockResolvedValue(connectedCatalog);
+  native.revokeProvider.mockResolvedValue({ ...connectedCatalog, connectedProviders: [] });
+  native.createSanitizedDiagnostics.mockResolvedValue({ path: "/app-data/diagnostics/rubyn-diagnostics.json", createdAt: 42 });
+  native.clearLocalData.mockResolvedValue({ appState: { ...emptyState, onboardingVersion: 0, recentProjects: [], trustedProjectPaths: [] }, cleanupPending: false, retainedPaths: [] });
   native.getChiselMode.mockRejectedValue(new Error("Chisel unavailable in baseline tests"));
   native.appState.mockResolvedValue(emptyState);
   native.chooseProjectFolder.mockResolvedValue(null);
@@ -396,6 +405,62 @@ describe("native product flow", () => {
       models: ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
     }));
     expect(await screen.findByText("Connected")).toBeInTheDocument();
+  });
+
+  it("requires a named confirmation before revoking a connected provider", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Models & accounts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "MiniMax" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Revoke minimax access now?");
+    fireEvent.click(screen.getByRole("button", { name: "Revoke minimax" }));
+
+    await waitFor(() => expect(native.revokeProvider).toHaveBeenCalledWith("minimax"));
+    expect(await screen.findByText(/access was revoked/i)).toBeInTheDocument();
+  });
+
+  it("lists configured custom providers and revokes the selected provider name", async () => {
+    native.listModels.mockResolvedValue({
+      ...connectedCatalog,
+      models: [{ provider: "rubyn-phase5-smoke", model: "smoke-model", tier: "custom" }],
+      activeProvider: "rubyn-phase5-smoke",
+      activeModel: "smoke-model",
+      connectedProviders: ["rubyn-phase5-smoke"],
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Models & accounts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "rubyn-phase5-smoke" }));
+
+    expect(screen.getByRole("heading", { name: "rubyn-phase5-smoke" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Revoke rubyn-phase5-smoke access now?");
+    fireEvent.click(screen.getByRole("button", { name: "Revoke rubyn-phase5-smoke" }));
+
+    await waitFor(() => expect(native.revokeProvider).toHaveBeenCalledWith("rubyn-phase5-smoke"));
+  });
+
+  it("creates a sanitized diagnostic report and shows its exact path", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Projects" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create diagnostic report" }));
+
+    await waitFor(() => expect(native.createSanitizedDiagnostics).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("/app-data/diagnostics/rubyn-diagnostics.json")).toBeInTheDocument();
+    expect(screen.getByText(/not prompts, source, paths, or credentials/i)).toBeInTheDocument();
+  });
+
+  it("requires destructive confirmation before clearing local data and returns to onboarding", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Projects" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove local data…" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Remove all Rubyn Harness local workspace data?");
+    expect(screen.getByText(/Source repositories and provider accounts are not deleted/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove local data" }));
+
+    await waitFor(() => expect(native.clearLocalData).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: /Your repository stays under your control/i })).toBeInTheDocument();
   });
 
   it("migrates a saved OpenAI 5.4 choice to the matching 5.6 tier", async () => {

@@ -301,6 +301,8 @@ export interface UpsertProviderRequest {
   apiKey: string;
   models: string[];
 }
+export interface DiagnosticReportResult { path: string; createdAt: number }
+export interface ClearLocalDataResult { appState: LocalAppState; cleanupPending: boolean; retainedPaths: string[] }
 
 export const isDesktop = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -334,11 +336,14 @@ export const harnessBridge = {
   engineHealth: () => desktopInvoke<EngineInfo>("engine_health"),
   listModels: () => desktopInvoke<ModelCatalog>("list_models"),
   upsertProvider: (request: UpsertProviderRequest) => desktopInvoke<ModelCatalog>("upsert_provider", { request }),
+  revokeProvider: (provider: string) => desktopInvoke<ModelCatalog>("revoke_provider", { provider }),
   startCodexLogin: () => desktopInvoke<void>("start_codex_login"),
   getChiselMode: () => desktopInvoke<"off" | "lite" | "full" | "ultra">("get_chisel_mode"),
   setChiselEnabled: (enabled: boolean) => desktopInvoke<"off" | "full">("set_chisel_enabled", { enabled }),
   appState: () => desktopInvoke<LocalAppState>("get_app_state"),
   saveAppState: (state: LocalAppState) => desktopInvoke<LocalAppState>("save_app_state", { state }),
+  createSanitizedDiagnostics: () => desktopInvoke<DiagnosticReportResult>("create_sanitized_diagnostics"),
+  clearLocalData: () => desktopInvoke<ClearLocalDataResult>("clear_local_data"),
   inspectProject: (projectPath: string) => desktopInvoke<ProjectSummary>("inspect_project", { projectPath }),
   trustProject: (projectPath: string) => desktopInvoke<LocalAppState>("trust_project", { projectPath }),
   projectData: (projectPath: string) => desktopInvoke<ProjectData>("get_project_data", { projectPath }),

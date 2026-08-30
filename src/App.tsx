@@ -1083,9 +1083,9 @@ function DiffView({ diff }: { diff: string }) {
   })}</code></pre>;
 }
 
-type AccountChoice = "codex" | "anthropic" | "openai" | "minimax" | "custom";
+type PresetAccountChoice = "anthropic" | "openai" | "minimax";
 
-const accountPresets: Record<Exclude<AccountChoice, "codex" | "custom">, { name: string; mark: string; help: string; baseUrl: string; apiFormat: "openai" | "anthropic"; models: string[]; keyHint: string }> = {
+const accountPresets: Record<PresetAccountChoice, { name: string; mark: string; help: string; baseUrl: string; apiFormat: "openai" | "anthropic"; models: string[]; keyHint: string }> = {
   anthropic: { name: "Anthropic", mark: "A", help: "Use Claude with an Anthropic API key.", baseUrl: "https://api.anthropic.com/v1", apiFormat: "anthropic", models: ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], keyHint: "Starts with sk-ant-" },
   openai: { name: "OpenAI", mark: "O", help: "Use GPT models with an OpenAI API key.", baseUrl: "https://api.openai.com/v1", apiFormat: "openai", models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"], keyHint: "Starts with sk-" },
   minimax: { name: "MiniMax", mark: "M", help: "Use MiniMax models with one API key.", baseUrl: "https://api.minimax.io/v1", apiFormat: "openai", models: ["MiniMax-M3", "MiniMax-M2.7-highspeed", "MiniMax-M2.7"], keyHint: "Paste your MiniMax API key" },
@@ -1093,7 +1093,7 @@ const accountPresets: Record<Exclude<AccountChoice, "codex" | "custom">, { name:
 
 function Accounts() {
   const { modelCatalog, setModelCatalog, setNotice, setView } = useHarnessStore();
-  const [choice, setChoice] = useState<AccountChoice>();
+  const [choice, setChoice] = useState<string>();
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [signingIntoCodex, setSigningIntoCodex] = useState(false);
@@ -1101,13 +1101,15 @@ function Accounts() {
   const [customUrl, setCustomUrl] = useState("");
   const [customFormat, setCustomFormat] = useState<"openai" | "anthropic">("openai");
   const [customModels, setCustomModels] = useState("");
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const connected = new Set(modelCatalog?.connectedProviders || []);
   const providerCount = new Set(modelCatalog?.models.map((item) => item.provider) || []).size;
 
   const saveKey = async (event: FormEvent) => {
     event.preventDefault();
     if (!choice || choice === "codex" || !apiKey.trim()) return;
-    const preset = choice === "custom" ? undefined : accountPresets[choice];
+    const preset = choice === "custom" ? undefined : accountPresets[choice as PresetAccountChoice];
     const models = preset?.models || customModels.split(",").map((model) => model.trim()).filter(Boolean);
     const name = preset ? choice : customName.trim().toLowerCase();
     const baseUrl = preset?.baseUrl || customUrl.trim();
@@ -1142,11 +1144,28 @@ function Accounts() {
     } catch (error) { setNotice(String(error)); } finally { setSigningIntoCodex(false); }
   };
 
-  const choices: { id: AccountChoice; name: string; mark: string; help: string }[] = [
+  const revoke = async () => {
+    if (!choice) return;
+    setRevoking(true);
+    try {
+      const catalog = await harnessBridge.revokeProvider(choice);
+      setModelCatalog(catalog);
+      setConfirmingRevoke(false);
+      setChoice(undefined);
+      setNotice(`${choice === "codex" ? "Codex" : accountPresets[choice as PresetAccountChoice]?.name || customName || choice} access was revoked. Connect a ready model before starting more work.`);
+    } catch (error) { setNotice(String(error)); } finally { setRevoking(false); }
+  };
+
+  const knownProviders = new Set(["codex", ...Object.keys(accountPresets)]);
+  const customProviders = [...new Set(modelCatalog?.models.map((item) => item.provider).filter((provider) => !knownProviders.has(provider)) || [])];
+  const choices: { id: string; name: string; mark: string; help: string }[] = [
     { id: "codex", name: "Codex", mark: "C", help: "Sign in with your ChatGPT account. No key to copy." },
-    ...Object.entries(accountPresets).map(([id, preset]) => ({ id: id as AccountChoice, name: preset.name, mark: preset.mark, help: preset.help })),
+    ...Object.entries(accountPresets).map(([id, preset]) => ({ id, name: preset.name, mark: preset.mark, help: preset.help })),
+    ...customProviders.map((provider) => ({ id: provider, name: provider, mark: provider.slice(0, 1).toUpperCase() || "+", help: "Custom model service." })),
     { id: "custom", name: "Something else", mark: "+", help: "Connect another OpenAI- or Anthropic-compatible service." },
   ];
+  const presetChoice = choice ? accountPresets[choice as PresetAccountChoice] : undefined;
+  const selectedCustomProvider = Boolean(choice && choice !== "codex" && choice !== "custom" && !presetChoice);
 
   return (
     <section className="accounts-page">
@@ -1156,13 +1175,14 @@ function Accounts() {
         const isConnected = connected.has(item.id);
         return <button key={item.id} aria-label={item.name} className="account-choice" onClick={() => setChoice(item.id)}><span className={`account-mark ${item.id}`}>{item.mark}</span><span><strong>{item.name}</strong><small>{item.help}</small></span><b className={isConnected ? "connected" : ""}>{isConnected ? <><Check size={12} /> Connected</> : <>Set up <ChevronRight size={13} /></>}</b></button>;
       })}</div> : <article className="account-setup">
-        <button className="account-back" onClick={() => { setChoice(undefined); setApiKey(""); }}><ChevronRight size={14} />All services</button>
-        {choice === "codex" ? <div className="account-step"><span className="account-mark codex">C</span><Kicker>Codex</Kicker><h2>Sign in with ChatGPT</h2><p>Press the button. A browser window will open. Sign in, then come back—Rubyn will finish the rest.</p><button className="button primary" onClick={() => void signIntoCodex()} disabled={signingIntoCodex}>{signingIntoCodex ? <><RefreshCw size={15} />Waiting for you…</> : <>Open ChatGPT sign-in <ArrowUpRight size={15} /></>}</button><small>Rubyn Harness cannot see your password or ChatGPT token.</small></div> : <form className="account-step" onSubmit={saveKey}>
-          <span className={`account-mark ${choice}`}>{choice === "custom" ? "+" : accountPresets[choice].mark}</span><Kicker>{choice === "custom" ? "Another service" : accountPresets[choice].name}</Kicker><h2>{choice === "custom" ? "Tell Rubyn where to connect" : `Paste your ${accountPresets[choice].name} key`}</h2><p>{choice === "custom" ? "These details are usually on the service's API page." : "Copy the key from your account page and paste it below. We'll lock it on this computer."}</p>
+        <button className="account-back" onClick={() => { setChoice(undefined); setApiKey(""); setConfirmingRevoke(false); }}><ChevronRight size={14} />All services</button>
+        {choice === "codex" ? <div className="account-step"><span className="account-mark codex">C</span><Kicker>Codex</Kicker><h2>Sign in with ChatGPT</h2><p>Press the button. A browser window will open. Sign in, then come back—Rubyn will finish the rest.</p><button className="button primary" onClick={() => void signIntoCodex()} disabled={signingIntoCodex}>{signingIntoCodex ? <><RefreshCw size={15} />Waiting for you…</> : <>Open ChatGPT sign-in <ArrowUpRight size={15} /></>}</button><small>Rubyn Harness cannot see your password or ChatGPT token.</small></div> : selectedCustomProvider ? <div className="account-step"><span className="account-mark custom">{choice.slice(0, 1).toUpperCase()}</span><Kicker>Custom service</Kicker><h2>{choice}</h2><p>{modelCatalog?.models.filter((item) => item.provider === choice).length || 0} configured models. Revoke access below to remove its configuration and stored key.</p></div> : <form className="account-step" onSubmit={saveKey}>
+          <span className={`account-mark ${choice}`}>{choice === "custom" ? "+" : presetChoice?.mark}</span><Kicker>{choice === "custom" ? "Another service" : presetChoice?.name}</Kicker><h2>{choice === "custom" ? "Tell Rubyn where to connect" : `Paste your ${presetChoice?.name} key`}</h2><p>{choice === "custom" ? "These details are usually on the service's API page." : "Copy the key from your account page and paste it below. We'll lock it on this computer."}</p>
           {choice === "custom" && <div className="custom-account-fields"><label>Service name<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My model service" /></label><label>Connection type<select value={customFormat} onChange={(event) => setCustomFormat(event.target.value as "openai" | "anthropic")}><option value="openai">Works like OpenAI</option><option value="anthropic">Works like Anthropic</option></select></label><label>Web address<input value={customUrl} onChange={(event) => setCustomUrl(event.target.value)} placeholder="https://api.example.com/v1" /></label><label>Model names<input value={customModels} onChange={(event) => setCustomModels(event.target.value)} placeholder="model-one, model-two" /><small>Separate names with commas.</small></label></div>}
-          <label className="key-field">Secret key<input aria-label="Secret key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={choice === "custom" ? "Paste the key here" : accountPresets[choice].keyHint} autoComplete="new-password" /><small>Stored encrypted. It never goes into project files.</small></label>
+          <label className="key-field">Secret key<input aria-label="Secret key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={choice === "custom" ? "Paste the key here" : presetChoice?.keyHint} autoComplete="new-password" /><small>Stored encrypted. It never goes into project files.</small></label>
           <button className="button primary" disabled={saving || !apiKey.trim() || (choice === "custom" && (!customName.trim() || !customUrl.trim() || !customModels.trim()))}>{saving ? <><RefreshCw size={15} />Saving safely…</> : <><KeyRound size={15} />Save and connect</>}</button>
         </form>}
+        {connected.has(choice) && <div className="account-revoke"><strong>Disconnect this service</strong><p>Revoking {choice === "codex" ? "Codex" : choice} prevents new Rubyn work from using it. Existing run history is retained.</p>{confirmingRevoke ? <div role="alert"><span>Revoke {choice === "codex" ? "Codex" : choice} access now?</span><button className="button danger compact" onClick={() => void revoke()} disabled={revoking}>{revoking ? "Revoking…" : `Revoke ${choice}`}</button><button className="button quiet compact" onClick={() => setConfirmingRevoke(false)} disabled={revoking}>Keep connected</button></div> : <button className="button danger compact" onClick={() => setConfirmingRevoke(true)}>Revoke access</button>}</div>}
       </article>}
     </section>
   );
@@ -1175,6 +1195,10 @@ function Projects() {
   const [chiselMode, setChiselMode] = useState<"off" | "lite" | "full" | "ultra">();
   const [savingChisel, setSavingChisel] = useState(false);
   const [pendingTrust, setPendingTrust] = useState<ProjectSummary>();
+  const [creatingDiagnostics, setCreatingDiagnostics] = useState(false);
+  const [diagnosticPath, setDiagnosticPath] = useState("");
+  const [confirmingDataRemoval, setConfirmingDataRemoval] = useState(false);
+  const [clearingData, setClearingData] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -1224,6 +1248,38 @@ function Projects() {
       setNotice(enabled ? "Chisel is on. Rubyn will prefer the smallest change that works." : "Chisel is off.");
     } catch (error) { setNotice(String(error)); } finally { setSavingChisel(false); }
   };
+  const createDiagnostics = async () => {
+    setCreatingDiagnostics(true);
+    try {
+      const report = await harnessBridge.createSanitizedDiagnostics();
+      setDiagnosticPath(report.path);
+      setNotice("Sanitized diagnostics created. The report contains counts and versions, not prompts, source, paths, or credentials.");
+    } catch (error) { setNotice(String(error)); } finally { setCreatingDiagnostics(false); }
+  };
+  const clearData = async () => {
+    setClearingData(true);
+    try {
+      const result = await harnessBridge.clearLocalData();
+      useHarnessStore.setState({
+        view: "projects",
+        project: undefined,
+        projectData: undefined,
+        globalRuns: [],
+        appState: result.appState,
+        wayfinderMaps: [],
+        wayfinderBlockers: [],
+        activeWayfinderMapId: undefined,
+        wayfinderData: undefined,
+        selectedRunId: undefined,
+        activeConversationId: undefined,
+        runEvents: {},
+        eventCursors: {},
+        notice: result.cleanupPending ? `Local data reset; cleanup remains for ${result.retainedPaths.join(", ")}. Retry removal from Privacy & support.` : "Rubyn Harness local workspace data was removed.",
+      });
+      setConfirmingDataRemoval(false);
+      setDiagnosticPath("");
+    } catch (error) { setNotice(String(error)); } finally { setClearingData(false); }
+  };
 
   return (
     <section>
@@ -1243,6 +1299,7 @@ function Projects() {
           <div className="setting-row"><div><strong>Reduced motion</strong><small>Disable decorative movement in this session</small></div><button className={`switch ${reducedMotion ? "on" : ""}`} onClick={() => setReducedMotion(!reducedMotion)} role="switch" aria-label="Reduced motion" aria-checked={reducedMotion}><i /></button></div>
           <div className="provider-summary"><strong>Models & accounts</strong><small>{modelCatalog?.connectedProviders.length || 0} connected · {modelCatalog?.models.length || 0} models available</small><button className="button quiet compact" onClick={() => useHarnessStore.getState().setView("accounts")}><KeyRound size={14} />Manage accounts</button></div>
         </article>
+        <article className="settings-card privacy-support"><Kicker>Privacy & support</Kicker><h2>Sanitized diagnostics</h2><p>Create an allowlisted report with versions and aggregate state counts. Prompts, model output, source, diffs, paths, command output, attachments, and credentials are excluded.</p><button className="button quiet" onClick={() => void createDiagnostics()} disabled={creatingDiagnostics}>{creatingDiagnostics ? "Creating report…" : "Create diagnostic report"}</button>{diagnosticPath && <code>{diagnosticPath}</code>}<div className="local-data-removal"><strong>Remove local workspace data</strong><p>Deletes Harness history, trust decisions, diagnostics, and managed worktrees. Source repositories and provider accounts are not deleted; revoke providers separately.</p>{confirmingDataRemoval ? <div role="alert"><span>Remove all Rubyn Harness local workspace data?</span><button className="button danger compact" onClick={() => void clearData()} disabled={clearingData}>{clearingData ? "Removing…" : "Remove local data"}</button><button className="button quiet compact" onClick={() => setConfirmingDataRemoval(false)} disabled={clearingData}>Keep data</button></div> : <button className="button danger compact" onClick={() => setConfirmingDataRemoval(true)}>Remove local data…</button>}</div></article>
       </div>
       {pendingTrust && <ProjectTrustDialog project={pendingTrust} engineReady={engineState === "ready"} providerReady={Boolean(modelCatalog?.connectedProviders.length)} busy={checking} onCancel={() => setPendingTrust(undefined)} onConfirm={() => { setChecking(true); void openInspected(pendingTrust, true).catch((error) => setNotice(String(error))).finally(() => setChecking(false)); }} />}
     </section>

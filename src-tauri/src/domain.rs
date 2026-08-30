@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 pub const MAX_RECENT_PROJECTS: usize = 24;
 pub const MAX_TRUSTED_PROJECTS: usize = 128;
@@ -109,6 +112,34 @@ pub struct EngineInfo {
     pub executable: String,
     pub version: Option<String>,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticStateSummary {
+    pub schema_version: u32,
+    pub project_count: usize,
+    pub trusted_project_count: usize,
+    pub run_count: usize,
+    pub running_run_count: usize,
+    pub lifecycle_counts: BTreeMap<String, usize>,
+    pub pending_approval_count: usize,
+    pub wayfinder_map_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticReportResult {
+    pub path: String,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearLocalDataResult {
+    pub app_state: LocalAppState,
+    pub cleanup_pending: bool,
+    pub retained_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
