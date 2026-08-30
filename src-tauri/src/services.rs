@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const RUBY_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const RUBY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 use thiserror::Error;
 
 const MAX_DIFF_BYTES: usize = 1_048_576;
@@ -831,10 +831,14 @@ pub fn ruby_runtime_for(root: &Path) -> Option<PathBuf> {
         candidates.push(PathBuf::from(explicit));
     }
     if let Some(rbenv_root) = std::env::var_os("RBENV_ROOT") {
-        candidates.push(PathBuf::from(rbenv_root).join("shims/ruby"));
+        let rbenv_root = PathBuf::from(rbenv_root);
+        candidates.extend(rbenv_ruby_candidates(&rbenv_root));
+        candidates.push(rbenv_root.join("shims/ruby"));
     }
     if let Some(user_home) = std::env::var_os("HOME") {
-        candidates.push(PathBuf::from(user_home).join(".rbenv/shims/ruby"));
+        let rbenv_root = PathBuf::from(user_home).join(".rbenv");
+        candidates.extend(rbenv_ruby_candidates(&rbenv_root));
+        candidates.push(rbenv_root.join("shims/ruby"));
     }
     candidates.extend([
         PathBuf::from("/opt/homebrew/opt/ruby/bin/ruby"),
@@ -856,6 +860,18 @@ pub fn ruby_runtime_for(root: &Path) -> Option<PathBuf> {
         command_output_with_timeout(&mut command, RUBY_PROBE_TIMEOUT)
             .is_some_and(|output| output.status.success())
     })
+}
+
+fn rbenv_ruby_candidates(root: &Path) -> Vec<PathBuf> {
+    let mut versions: Vec<_> = fs::read_dir(root.join("versions"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("bin/ruby"))
+        .filter(|candidate| candidate.is_file())
+        .collect();
+    versions.sort_by(|left, right| right.cmp(left));
+    versions
 }
 
 fn read_engine_version(root: &Path, ruby: &Path) -> Option<String> {
@@ -937,6 +953,27 @@ mod tests {
 
         assert!(command_output_with_timeout(&mut command, Duration::from_millis(50)).is_none());
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn rbenv_candidates_prefer_newer_direct_ruby_binaries() {
+        let directory = std::env::temp_dir().join(format!(
+            "rubyn-rbenv-candidates-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        for version in ["3.4.8", "4.0.2", "4.0.6"] {
+            let binary = directory.join("versions").join(version).join("bin/ruby");
+            fs::create_dir_all(binary.parent().unwrap()).unwrap();
+            fs::write(binary, "fixture").unwrap();
+        }
+
+        let candidates = rbenv_ruby_candidates(&directory);
+
+        assert!(candidates[0].ends_with("versions/4.0.6/bin/ruby"));
+        assert!(candidates[1].ends_with("versions/4.0.2/bin/ruby"));
+        assert!(candidates[2].ends_with("versions/3.4.8/bin/ruby"));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

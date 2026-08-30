@@ -47,5 +47,5 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
 - Frontend: 68 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,014 raw / 232,394 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
 - Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
-- Native startup probes now terminate a hung Ruby candidate and its process group after five seconds instead of blocking the AppKit thread indefinitely.
-- Rust: 65 tests passed with formatting and strict Clippy, including successful and timed-out command-probe contracts.
+- Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
+- Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.
