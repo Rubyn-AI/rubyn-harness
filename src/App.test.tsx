@@ -394,6 +394,26 @@ describe("native product flow", () => {
     expect(native.appState).not.toHaveBeenCalled();
   });
 
+  it("keeps acceptance fixtures out of customer-facing project navigation", async () => {
+    const fixture = {
+      path: "/tmp/rubyn-harness-acceptance-phase4-20260829",
+      name: "rubyn-harness-acceptance-phase4-20260829",
+    };
+    native.appState.mockResolvedValue({
+      ...emptyState,
+      recentProjects: [fixture, { path: project.path, name: project.name }, { path: "/work/heybob-rails", name: "heybob-rails" }],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /PROJECT ledger/i }));
+
+    expect(screen.getByText("heybob-rails")).toBeInTheDocument();
+    expect(screen.queryByText(fixture.name)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Project settings/i }));
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.queryByText(fixture.name)).not.toBeInTheDocument();
+  });
+
   it("connects a familiar model service by asking only for its key", async () => {
     const catalog = {
       models: [

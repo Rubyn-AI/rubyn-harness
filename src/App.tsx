@@ -132,6 +132,15 @@ function projectIsTrusted(state: LocalAppState | undefined, path: string) {
   return Boolean(state?.trustedProjectPaths?.includes(path));
 }
 
+function isAcceptanceFixtureProject(project: { path: string; name: string }) {
+  const pathName = project.path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) || "";
+  return [project.name, pathName].some((name) => /^rubyn-harness-acceptance(?:-|$)/i.test(name));
+}
+
+function visibleRecentProjects(state: LocalAppState | undefined) {
+  return (state?.recentProjects || []).filter((project) => !isAcceptanceFixtureProject(project));
+}
+
 function ProjectRequired() {
   const { engineState, engineDetail, setView } = useHarnessStore();
   if (engineState === "unavailable") {
@@ -1342,8 +1351,8 @@ function Projects() {
       <div className="project-layout">
         <article className="project-list">
           <div className="project-picker"><span className="project-picker-gem"><FolderKanban size={25} /></span><div><strong>Open a project</strong><small>Pick the folder that contains your Gemfile or Git repository.</small></div><button className="button primary" onClick={() => void browse()} disabled={checking}>{checking ? "Inspecting…" : "Choose project folder"}</button></div>
-          {appState?.recentProjects.map((recent) => <button key={recent.path} className={project?.path === recent.path ? "selected" : ""} onClick={() => void choose(recent.path)} disabled={checking}><span><FolderKanban size={17} />{recent.name}</span><small>{project?.path === recent.path ? "active" : "open"}</small></button>)}
-          {!appState?.recentProjects.length && <p className="project-empty">No recent projects.</p>}
+          {visibleRecentProjects(appState).map((recent) => <button key={recent.path} className={project?.path === recent.path ? "selected" : ""} onClick={() => void choose(recent.path)} disabled={checking}><span><FolderKanban size={17} />{recent.name}</span><small>{project?.path === recent.path ? "active" : "open"}</small></button>)}
+          {!visibleRecentProjects(appState).length && <p className="project-empty">No recent projects.</p>}
           <details className="advanced-path"><summary>Enter a path manually</summary><form className="project-path" onSubmit={submit}><label>Local project path<input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/path/to/rails-app" autoComplete="off" /></label><button className="button quiet" disabled={checking || !path.trim()}>{checking ? "Inspecting…" : "Open path"}</button></form></details>
         </article>
         <article className="settings-card">
@@ -1409,7 +1418,7 @@ function CommandPalette({ onSwitchProject }: { onSwitchProject: (path: string) =
     ...navigation.map((item) => ({ key: `view-${item.id}`, label: item.label, detail: "Open workspace", icon: item.icon, run: () => setView(item.id) })),
     ...(projectData?.runs || []).filter((conversation) => !conversation.archivedAt).map((conversation) => ({ key: `conversation-${conversation.id}`, label: conversationTitle(conversation, 60), detail: `Conversation · ${runLabel(conversation)}`, icon: MessageCircle, run: () => openConversation(conversation.id) })),
     ...(projectData?.tasks || []).map((task) => ({ key: `task-${task.id}`, label: task.title, detail: `Task · ${task.status}`, icon: Layers3, run: () => setView("workboard") })),
-    ...(appState?.recentProjects || []).map((project) => ({ key: `project-${project.path}`, label: project.name, detail: "Open recent project", icon: FolderKanban, run: () => { void onSwitchProject(project.path); } })),
+    ...visibleRecentProjects(appState).map((project) => ({ key: `project-${project.path}`, label: project.name, detail: "Open recent project", icon: FolderKanban, run: () => { void onSwitchProject(project.path); } })),
   ].filter((item) => !normalized || `${item.label} ${item.detail}`.toLowerCase().includes(normalized)).slice(0, 12);
   const open = (option: (typeof options)[number]) => { option.run(); setCommandOpen(false); };
   useEffect(() => { setActiveIndex(0); }, [query]);
@@ -1477,7 +1486,7 @@ export function App() {
         try { state.setModelCatalog(await harnessBridge.listModels()); } catch { /* Provider setup remains available after boot. */ }
         try { state.setSkills(await harnessBridge.listBundledSkills()); } catch { state.setSkills([]); }
         try { state.setGlobalRuns(await harnessBridge.listRuns()); } catch { state.setGlobalRuns([]); }
-        const recent = appState.recentProjects[0];
+        const recent = visibleRecentProjects(appState)[0];
         if (recent) {
           try {
             const project = await harnessBridge.inspectProject(recent.path);
@@ -1607,13 +1616,14 @@ export function App() {
     <div className={`app-shell ${store.reducedMotion ? "reduced-motion" : ""}`}>
       <aside className={`sidebar ${store.mobileOpen ? "open" : ""}`}>
         <div className="brand"><span className="brand-mark">R</span><span>rubyn</span><small>HARNESS</small><button className="sidebar-close" onClick={() => store.setMobileOpen(false)} aria-label="Close navigation"><PanelLeftClose size={18} /></button></div>
-        <div className="project-switcher"><button className="project-switch" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((open) => !open)}><span className="project-gem" /><div><small>PROJECT</small><strong>{store.project?.name || "Choose project"}</strong></div><ChevronRight size={15} /></button>{projectMenuOpen && <div className="project-popover"><button className="new-project" onClick={() => void browseProject()} disabled={switchingProject}><Plus size={14} />{switchingProject ? "Opening…" : "Open project folder"}</button>{store.appState?.recentProjects.map((recent) => <button className={recent.path === store.project?.path ? "active" : ""} key={recent.path} onClick={() => void switchProject(recent.path)} disabled={switchingProject}><span><FolderKanban size={14} />{recent.name}</span>{recent.path === store.project?.path && <Check size={13} />}</button>)}<button className="manage-projects" onClick={() => { store.setView("projects"); setProjectMenuOpen(false); }}>Project settings <ArrowRight size={13} /></button></div>}</div>
+        <div className="project-switcher"><button className="project-switch" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((open) => !open)}><span className="project-gem" /><div><small>PROJECT</small><strong>{store.project?.name || "Choose project"}</strong></div><ChevronRight size={15} /></button>{projectMenuOpen && <div className="project-popover"><button className="new-project" onClick={() => void browseProject()} disabled={switchingProject}><Plus size={14} />{switchingProject ? "Opening…" : "Open project folder"}</button>{visibleRecentProjects(store.appState).map((recent) => <button className={recent.path === store.project?.path ? "active" : ""} key={recent.path} onClick={() => void switchProject(recent.path)} disabled={switchingProject}><span><FolderKanban size={14} />{recent.name}</span>{recent.path === store.project?.path && <Check size={13} />}</button>)}<button className="manage-projects" onClick={() => { store.setView("projects"); setProjectMenuOpen(false); }}>Project settings <ArrowRight size={13} /></button></div>}</div>
         <nav aria-label="Primary navigation">{primaryNavigation.map((item) => <button className={store.view === item.id ? "active" : ""} onClick={() => store.setView(item.id)} key={item.id}><item.icon size={17} /><span>{item.label}</span>{item.id === "wayfinder" && store.wayfinderBlockers.length > 0 && <b>{store.wayfinderBlockers.length}</b>}</button>)}</nav>
         {store.project && <div className="sidebar-wayfinder"><div className="sidebar-label"><span>Active maps</span><button aria-label="New Wayfinder map" onClick={() => { store.openWayfinderMap(undefined); store.setView("wayfinder"); }}><Plus size={13} /></button></div>{store.wayfinderMaps.filter((map) => map.status !== "archived").slice(0, 5).map((map) => <button key={map.id} className={store.view === "wayfinder" && store.activeWayfinderMapId === map.id ? "active" : ""} onClick={() => store.openWayfinderMap(map.id)}><span className={`pulse ${map.status === "draft" ? "waiting" : "running"}`} /><span><strong>{map.title}</strong><small>{map.status}</small></span></button>)}</div>}
         <SidebarConversations />
         <nav className="utility-nav" aria-label="Workspace utilities"><span className="sidebar-label">Workspace</span>{utilityNavigation.map((item) => <button className={store.view === item.id ? "active" : ""} onClick={() => store.setView(item.id)} key={item.id}><item.icon size={16} /><span>{item.label}</span></button>)}</nav>
         <div className="sidebar-foot"><button onClick={() => store.setView("projects")}><Settings2 size={16} />Project runtime</button><div className={`engine-status ${store.engineState}`} title={store.engineDetail}><span className="live-dot" />Rubyn · {store.engineState}</div></div>
       </aside>
+      {store.mobileOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => store.setMobileOpen(false)} />}
       <main>
         <header className="topbar">
           <button className="menu-button" onClick={() => store.setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
