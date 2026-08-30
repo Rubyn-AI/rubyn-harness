@@ -2,6 +2,8 @@
 
 Validated on macOS on 2026-08-29.
 
+The reusable native release procedure is published in `beta-checklist.md`. Its A–G, VoiceOver, rendered-contrast, and signed/notarized distribution items remain intentionally unchecked until they are exercised on one exact release candidate.
+
 ## Accessibility baseline
 
 - Added pinned `axe-core` 4.13.0 to the frontend test environment.
