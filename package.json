@@ -15,12 +15,13 @@
     "test:fixture": "node --test scripts/prepare-beta-fixture.test.mjs scripts/create-acceptance-run.test.mjs",
     "acceptance:create": "node scripts/create-acceptance-run.mjs",
     "test:release": "node --test scripts/release-contract.test.mjs",
-    "test:performance": "node --test scripts/check-build-budget.test.mjs",
+    "test:performance": "node --test scripts/check-build-budget.test.mjs scripts/measure-native-performance.test.mjs",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",
     "tauri": "tauri",
     "release:check": "node scripts/release-contract.mjs",
     "performance:check": "node scripts/check-build-budget.mjs",
+    "performance:native": "node scripts/measure-native-performance.mjs",
     "release:macos": "node scripts/release-macos.mjs"
   },
   "dependencies": {

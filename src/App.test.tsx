@@ -17,6 +17,7 @@ import type {
 
 const native = vi.hoisted(() => ({
   desktop: true,
+  recordPerformanceReady: vi.fn(),
   chooseProjectFolder: vi.fn(),
   chooseAttachments: vi.fn(),
   engineHealth: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("./bridge", async () => {
     ...actual,
     isDesktop: () => native.desktop,
     harnessBridge: {
+      recordPerformanceReady: native.recordPerformanceReady,
       chooseProjectFolder: native.chooseProjectFolder,
       chooseAttachments: native.chooseAttachments,
       engineHealth: native.engineHealth,
@@ -262,6 +264,7 @@ beforeEach(() => {
     executable: "/app/engine/rubyn-code",
     version: "0.1.0",
   });
+  native.recordPerformanceReady.mockResolvedValue(undefined);
   native.listModels.mockResolvedValue(connectedCatalog);
   native.revokeProvider.mockResolvedValue({ ...connectedCatalog, connectedProviders: [] });
   native.createSanitizedDiagnostics.mockResolvedValue({ path: "/app-data/diagnostics/rubyn-diagnostics.json", createdAt: 42 });

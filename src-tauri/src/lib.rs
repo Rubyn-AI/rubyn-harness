@@ -29,7 +29,7 @@ use std::{
     process::{Command, Stdio},
     sync::Mutex,
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -48,13 +48,62 @@ struct SanitizedDiagnostics {
     state: DiagnosticStateSummary,
 }
 
-#[derive(Default)]
 struct AppRuntime {
     store: Mutex<Option<StateRepository>>,
     engines: Mutex<EngineSupervisor>,
+    started_at: Instant,
+}
+
+impl Default for AppRuntime {
+    fn default() -> Self {
+        Self {
+            store: Mutex::new(None),
+            engines: Mutex::new(EngineSupervisor::default()),
+            started_at: Instant::now(),
+        }
+    }
 }
 
 type CommandResult<T> = Result<T, String>;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativePerformanceRecord {
+    native_elapsed_ms: f64,
+    frontend_elapsed_ms: f64,
+    project_opened: bool,
+}
+
+#[tauri::command]
+fn record_performance_ready(
+    app: AppHandle,
+    runtime: State<'_, AppRuntime>,
+    frontend_elapsed_ms: f64,
+    project_opened: bool,
+) -> CommandResult<()> {
+    if std::env::var_os("RUBYN_HARNESS_TEST_APP_DATA_DIR").is_none() {
+        return Ok(());
+    }
+    let directory = app_data_directory(&app)?;
+    fs::create_dir_all(&directory).map_err(to_command_error)?;
+    let record = NativePerformanceRecord {
+        native_elapsed_ms: runtime.started_at.elapsed().as_secs_f64() * 1_000.0,
+        frontend_elapsed_ms,
+        project_opened,
+    };
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(directory.join("native-performance.jsonl"))
+        .map_err(to_command_error)?;
+    writeln!(
+        file,
+        "{}",
+        serde_json::to_string(&record).map_err(to_command_error)?
+    )
+    .map_err(to_command_error)
+}
 
 fn refresh_builtin_models(catalog: &mut ModelCatalog) {
     const BUILTIN_PROVIDERS: [&str; 3] = ["anthropic", "openai", "minimax"];
@@ -1738,6 +1787,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppRuntime::default())
         .invoke_handler(tauri::generate_handler![
+            record_performance_ready,
             engine_health,
             list_models,
             upsert_provider,

@@ -312,6 +312,7 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const harnessBridge = {
+  recordPerformanceReady: (frontendElapsedMs: number, projectOpened: boolean) => desktopInvoke<void>("record_performance_ready", { frontendElapsedMs, projectOpened }),
   chooseProjectFolder: async () => {
     if (!isDesktop()) throw new Error("Rubyn Harness requires the desktop runtime.");
     const selected = await open({ directory: true, multiple: false, title: "Choose a Ruby or Rails project" });

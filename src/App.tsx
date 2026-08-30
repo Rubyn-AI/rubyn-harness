@@ -1441,6 +1441,7 @@ export function App() {
   useEffect(() => {
     if (!isDesktop()) return;
     let current = true;
+    const frontendStartedAt = performance.now();
     const boot = async () => {
       const state = useHarnessStore.getState();
       state.setLoading(true);
@@ -1492,7 +1493,12 @@ export function App() {
           setAppStateError(detail);
           state.setNotice(`Harness startup failed: ${detail}`);
         }
-      } finally { if (current) state.setLoading(false); }
+      } finally {
+        if (current) {
+          state.setLoading(false);
+          void harnessBridge.recordPerformanceReady(performance.now() - frontendStartedAt, Boolean(useHarnessStore.getState().project)).catch(() => {});
+        }
+      }
     };
     void boot();
     return () => { current = false; };

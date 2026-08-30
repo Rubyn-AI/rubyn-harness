@@ -176,6 +176,7 @@ describe("desktop bridge contract", () => {
       recentProjects: [{ path: "/repo", name: "repo" }],
     };
     await harnessBridge.engineHealth();
+    await harnessBridge.recordPerformanceReady(125, true);
     await harnessBridge.appState();
     await harnessBridge.saveAppState(appState);
     await harnessBridge.inspectProject("/repo");
@@ -202,6 +203,7 @@ describe("desktop bridge contract", () => {
 
     expect(invoke.mock.calls).toEqual([
       ["engine_health", undefined],
+      ["record_performance_ready", { frontendElapsedMs: 125, projectOpened: true }],
       ["get_app_state", undefined],
       ["save_app_state", { state: appState }],
       ["inspect_project", { projectPath: "/repo" }],
