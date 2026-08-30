@@ -9,9 +9,12 @@ Validated on macOS on 2026-08-29.
 - Primary empty-project shell: no automated structural accessibility violations.
 - Missing-runtime preflight: no automated structural accessibility violations.
 - Repository trust dialog: no automated structural accessibility violations.
+- Provider setup: no automated structural accessibility violations.
+- Active conversation and retained Review token summaries: no automated structural accessibility violations.
+- Review worktree-discard confirmation: no automated structural accessibility violations.
 - Local-data removal confirmation: no automated structural accessibility violations.
 - Upgrade-state recovery screen: no automated structural accessibility violations.
-- Frontend suite: 68 tests passed.
+- Frontend suite: 71 tests passed.
 
 Color contrast is intentionally excluded from jsdom automation because rendered color calculation is unavailable there. Native contrast, keyboard, reduced-motion, and macOS assistive-technology passes remain open.
 
@@ -23,6 +26,12 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - Three budget-contract tests passed, including exact over-budget reporting and missing-build failure.
 - The signed release command now runs the contract tests and checks the built production assets before native packaging.
 - A non-interactive `pnpm install --frozen-lockfile` passed under the pinned pnpm 10.14.0 after adding the accessibility dependency.
+
+## Bounded runtime work
+
+- The native event repository retains at most 5,000 events per run; its regression contract proves a 5,020-event append retains protocol sequences 21–5,020.
+- The UI cache retains at most the newest 500 unique events per run while advancing the durable polling cursor.
+- Project polling is guarded by a reusable exclusive-task primitive. Regression contracts prove overlapping timer ticks are skipped, polling resumes after completion, and a failed tick releases the guard.
 
 ## Upgrade-state safety
 
@@ -45,7 +54,7 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - Rubyn-provider chats now emit cumulative input, cached-input, cache-write, output, and total tokens.
 - Rubyn measures tokens removed by tool-output compression and context compaction. The UI reports these as Rubyn savings and reports provider cache reuse separately.
 - The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
-- Frontend: 68 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,014 raw / 232,394 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
+- Frontend: 71 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,076 raw / 232,411 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
 - Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
 - Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
 - Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.

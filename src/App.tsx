@@ -52,6 +52,7 @@ import {
 } from "./bridge";
 import { type View, useHarnessStore } from "./store";
 import { Wayfinder } from "./Wayfinder";
+import { createExclusiveTask } from "./exclusiveTask";
 
 const primaryNavigation: { id: View; label: string; icon: typeof Activity }[] = [
   { id: "agents", label: "Talk to Rubyn", icon: MessageCircle },
@@ -1499,10 +1500,7 @@ export function App() {
 
   useEffect(() => {
     if (!isDesktop() || !projectPath) return;
-    let busy = false;
-    const poll = async () => {
-      if (busy) return;
-      busy = true;
+    const poll = createExclusiveTask(async () => {
       try {
         const state = useHarnessStore.getState();
         const [data, globalRuns] = await Promise.all([
@@ -1521,8 +1519,8 @@ export function App() {
         }
       } catch {
         // A run can exit between project refresh and event polling; the next tick reconciles it.
-      } finally { busy = false; }
-    };
+      }
+    });
     void poll();
     const interval = window.setInterval(() => void poll(), 1300);
     return () => window.clearInterval(interval);

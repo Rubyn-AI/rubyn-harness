@@ -394,6 +394,7 @@ describe("native product flow", () => {
     fireEvent.click(screen.getByText("Anthropic", { exact: true }).closest("button")!);
 
     expect(screen.queryByLabelText("Web address")).not.toBeInTheDocument();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
     fireEvent.change(screen.getByLabelText("Secret key"), { target: { value: "sk-ant-test" } });
     fireEvent.click(screen.getByRole("button", { name: "Save and connect" }));
 
@@ -695,6 +696,7 @@ describe("native product flow", () => {
     expect(screen.getByText("Discard this worktree?")).toBeInTheDocument();
     expect(screen.getAllByText(/0 changed files/)).toHaveLength(2);
     expect(native.discardRun).not.toHaveBeenCalled();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Keep worktree" }));
     expect(screen.queryByText("Discard this worktree?")).not.toBeInTheDocument();
   });
@@ -1234,9 +1236,11 @@ describe("native product flow", () => {
     expect(screen.getByText(/40K input · 1.2K output · 200 reasoning/)).toBeInTheDocument();
     expect(screen.getByText("Rubyn saved 450 context tokens through tool output and context compaction.")).toBeInTheDocument();
     expect(screen.getByText("Provider cache reused 30K input tokens (75%).")).toBeInTheDocument();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
     expect(await screen.findByLabelText("Run token usage")).toHaveTextContent("41.2K tokens used");
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
   });
 
   it("keeps a followed conversation scrolled to its newest message", async () => {

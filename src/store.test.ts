@@ -24,6 +24,26 @@ describe("harness UI cache", () => {
     expect(useHarnessStore.getState().eventCursors[2]).toBe(7);
   });
 
+  it("retains only the newest 500 unique events for each run", () => {
+    const events = Array.from({ length: 525 }, (_, index) => ({
+      id: index + 1,
+      runId: 2,
+      protocolSequence: index + 1,
+      kind: "stream/text",
+      payload: { text: String(index + 1) },
+      raw: String(index + 1),
+      createdAt: index + 1,
+    }));
+
+    useHarnessStore.getState().appendRunEvents(2, events, 525);
+
+    const retained = useHarnessStore.getState().runEvents[2];
+    expect(retained).toHaveLength(500);
+    expect(retained[0].id).toBe(26);
+    expect(retained[499].id).toBe(525);
+    expect(useHarnessStore.getState().eventCursors[2]).toBe(525);
+  });
+
   it("clears run-local review state when the native project boundary changes", () => {
     const first = { path: "/work/first", name: "first", isRuby: true, isRails: false, hasRubynInstructions: false };
     const second = { path: "/work/second", name: "second", isRuby: true, isRails: true, hasRubynInstructions: true };
