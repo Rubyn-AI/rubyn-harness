@@ -9,7 +9,7 @@
 ## [x] 2. Harden the macOS bundle contract
 
 - [x] 2.1 Set explicit macOS 13.0 metadata and hardened runtime. (refs Req 6.2)
-- [x] 2.2 Enforce a reviewed zero-custom-entitlements policy. (refs Req 6.2)
+- [x] 2.2 Enforce a reviewed empty-entitlements policy. (refs Req 6.2)
 - [x] 2.3 Require universal arm64 and x86_64 output. (refs Req 6.2)
 
 ## [x] 3. Automate trusted release verification

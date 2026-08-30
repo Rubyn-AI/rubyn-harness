@@ -33,7 +33,8 @@
     "copyright": "Copyright © 2026 Rubyn Harness contributors",
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "entitlements": "Entitlements.plist"
     },
     "resources": {
       "../engine/rubyn-code/lib": "engine/rubyn-code/lib",

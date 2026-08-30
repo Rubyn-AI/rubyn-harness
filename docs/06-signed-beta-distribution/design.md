@@ -6,7 +6,7 @@
 
 ## macOS bundle policy
 
-Tauri produces only application and DMG bundles. Its macOS configuration explicitly sets macOS 13.0 and hardened runtime. The application requires no custom entitlements, so the release contract rejects any configured entitlement blob; this avoids both unnecessary privileges and invalid empty-entitlement signatures. The release command targets `universal-apple-darwin` and inspects the final executable for both arm64 and x86_64 slices.
+Tauri produces only application and DMG bundles. Its macOS configuration explicitly sets macOS 13.0, hardened runtime, and a reviewed empty entitlement plist. The application requires no custom privileges, and the release contract rejects any non-empty entitlement set. The trusted release path supplies the empty plist to Apple's native signer because omitting the entitlement document produces an invalid arm64 signature on the pinned macOS toolchain. The release command targets `universal-apple-darwin` and inspects the final executable for both arm64 and x86_64 slices.
 
 ## Trusted release command
 

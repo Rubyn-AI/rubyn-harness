@@ -5,13 +5,13 @@ Validated on macOS on 2026-08-29. Phase 06 remains open until notarization crede
 ## Deterministic contract
 
 - `pnpm release:check` passed with Node 22.22.2, pnpm 10.14.0, Rust 1.97.1, and Ruby 4.0.6.
-- Three release-contract tests passed, including version/hardened-runtime/custom-entitlement drift and partial Apple credential rejection.
+- Three release-contract tests passed, including version/hardened-runtime/empty-entitlement drift and partial Apple credential rejection.
 - The exact Rust 1.97.1 toolchain is installed with both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets; the moving `stable` alias is not used by the repository.
 - The release command refuses immediately when its Developer ID identity or notarization credential set is absent or incomplete.
 
 ## Universal signed candidate
 
-A Developer ID-signed build completed at `src-tauri/target/universal-apple-darwin/release/bundle`. Its executable contains both x86_64 and arm64 slices, `LSMinimumSystemVersion` is 13.0, and the bundle version is 0.1.15. Both the app and DMG satisfy their designated requirements under `Developer ID Application: Matthew Suttles (8MWPMGK3YN)`, and the app signature carries the hardened-runtime flag without a custom entitlement blob.
+A Developer ID-signed build completed at `src-tauri/target/universal-apple-darwin/release/bundle`. Its executable contains both x86_64 and arm64 slices, `LSMinimumSystemVersion` is 13.0, and the bundle version is 0.1.15. Both the app and DMG satisfy their designated requirements under `Developer ID Application: Matthew Suttles (8MWPMGK3YN)`, and the app signature carries the hardened-runtime flag with the reviewed empty entitlement set.
 
 ## Regression matrix
 

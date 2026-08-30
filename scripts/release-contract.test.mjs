@@ -7,7 +7,7 @@ import { credentialMode, projectRoot, validateReleaseContract } from "./release-
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "rubyn-release-contract-"));
-  for (const relativePath of ["package.json", ".nvmrc", ".ruby-version", "rust-toolchain.toml", "pnpm-lock.yaml", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "engine/rubyn-code/Gemfile.lock"]) {
+  for (const relativePath of ["package.json", ".nvmrc", ".ruby-version", "rust-toolchain.toml", "pnpm-lock.yaml", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "src-tauri/Entitlements.plist", "engine/rubyn-code/Gemfile.lock"]) {
     const source = path.join(projectRoot, relativePath);
     const destination = path.join(root, relativePath);
     mkdirSync(path.dirname(destination), { recursive: true });
@@ -26,13 +26,13 @@ test("version drift and unsafe release settings fail closed", () => {
   const tauri = JSON.parse(readFileSync(tauriPath, "utf8"));
   tauri.version = "9.9.9";
   tauri.bundle.macOS.hardenedRuntime = false;
-  tauri.bundle.macOS.entitlements = "Entitlements.plist";
   writeFileSync(tauriPath, JSON.stringify(tauri));
+  writeFileSync(path.join(root, "src-tauri/Entitlements.plist"), "<dict><key>com.apple.security.get-task-allow</key><true/></dict>");
 
   const errors = validateReleaseContract(root).errors.join("\n");
   assert.match(errors, /same application version/);
   assert.match(errors, /Hardened runtime/);
-  assert.match(errors, /must not configure custom macOS entitlements/);
+  assert.match(errors, /must remain empty/);
 });
 
 test("notarization credentials must be complete without exposing their values", () => {

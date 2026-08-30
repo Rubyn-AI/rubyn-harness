@@ -50,7 +50,7 @@ function notarize(file, authority) {
 }
 
 function signAndNotarize(appPath, dmgPath, dmgDirectory, authority) {
-  run("codesign", ["--force", "--deep", "--strict", "--options", "runtime", "--timestamp", "--sign", authority.identity, appPath]);
+  run("codesign", ["--force", "--deep", "--strict", "--options", "runtime", "--timestamp", "--entitlements", path.join(projectRoot, "src-tauri/Entitlements.plist"), "--sign", authority.identity, appPath]);
 
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "rubyn-harness-release-"));
   try {
