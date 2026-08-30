@@ -1253,7 +1253,10 @@ describe("native product flow", () => {
     await screen.findByText("ledger is the source of truth.", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "Talk to Rubyn" }));
 
-    expect(await screen.findByText("41.2K tokens used")).toBeInTheDocument();
+    const headerUsage = (await screen.findByText("41.2K tokens used")).closest(".run-usage");
+    expect(headerUsage).toHaveClass("compact");
+    expect(headerUsage?.parentElement).toHaveClass("conversation-heading");
+    expect(headerUsage?.parentElement?.querySelector(".conversation-title")).not.toContainElement(headerUsage);
     expect(screen.getByText(/40K input · 1.2K output · 200 reasoning/)).toBeInTheDocument();
     expect(screen.getByText("Rubyn saved 450 context tokens through tool output and context compaction.")).toBeInTheDocument();
     expect(screen.getByText("Provider cache reused 30K input tokens (75%).")).toBeInTheDocument();
