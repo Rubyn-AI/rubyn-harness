@@ -14,9 +14,10 @@ Validated on macOS on 2026-08-29.
 - Review worktree-discard confirmation: no automated structural accessibility violations.
 - Local-data removal confirmation: no automated structural accessibility violations.
 - Upgrade-state recovery screen: no automated structural accessibility violations.
-- Frontend suite: 71 tests passed.
+- Modal keyboard focus is contained within the active dialog and wraps in both directions; the app also mirrors the macOS reduced-motion media preference into its explicit session control.
+- Frontend suite: 74 tests passed.
 
-Color contrast is intentionally excluded from jsdom automation because rendered color calculation is unavailable there. Native contrast, keyboard, reduced-motion, and macOS assistive-technology passes remain open.
+Color contrast is intentionally excluded from jsdom automation because rendered color calculation is unavailable there. Native contrast, full keyboard traversal, reduced-motion observation, and macOS assistive-technology passes remain open.
 
 ## Production asset baseline
 
@@ -62,7 +63,7 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - Rubyn-provider chats now emit cumulative input, cached-input, cache-write, output, and total tokens.
 - Rubyn measures tokens removed by tool-output compression and context compaction. The UI reports these as Rubyn savings and reports provider cache reuse separately.
 - The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
-- Frontend: 71 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,303 raw / 232,531 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
+- Frontend: 74 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 843,206 raw / 232,880 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
 - Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
 - Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
 - Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.

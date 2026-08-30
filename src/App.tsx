@@ -53,6 +53,7 @@ import {
 import { type View, useHarnessStore } from "./store";
 import { Wayfinder } from "./Wayfinder";
 import { createExclusiveTask } from "./exclusiveTask";
+import { trapModalFocus } from "./accessibility";
 
 const primaryNavigation: { id: View; label: string; icon: typeof Activity }[] = [
   { id: "agents", label: "Talk to Rubyn", icon: MessageCircle },
@@ -1533,7 +1534,17 @@ export function App() {
   }, [projectPath]);
 
   useEffect(() => {
+    const preference = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!preference) return;
+    const applyPreference = () => useHarnessStore.getState().setReducedMotion(preference.matches);
+    applyPreference();
+    preference.addEventListener("change", applyPreference);
+    return () => preference.removeEventListener("change", applyPreference);
+  }, []);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      trapModalFocus(event);
       const state = useHarnessStore.getState();
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); state.setCommandOpen(true); }
       if (event.key === "Escape") { state.setCommandOpen(false); state.setMobileOpen(false); setProjectMenuOpen(false); }

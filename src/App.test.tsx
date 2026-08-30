@@ -366,6 +366,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("native product flow", () => {
+  it("honors the operating-system reduced-motion preference", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    try {
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Projects" }));
+      expect(await screen.findByRole("switch", { name: "Reduced motion" })).toHaveAttribute("aria-checked", "true");
+      expect(document.querySelector(".app-shell")).toHaveClass("reduced-motion");
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("gates browser builds without calling any native operation", () => {
     native.desktop = false;
     render(<App />);
