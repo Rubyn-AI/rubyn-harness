@@ -15,7 +15,7 @@
 ## [ ] 3. Enforce performance budgets
 
 - [x] 3.1 Add deterministic production-asset budgets. (refs Req 7.3)
-- [ ] 3.2 Record clean-launch and project-open latency on supported hardware. (refs Req 7.3)
+- [x] 3.2 Record clean-launch and project-open latency on supported hardware. (refs Req 7.3)
 - [x] 3.3 Exercise bounded retained history and polling without unbounded growth. (refs Req 7.3)
 
 ## [ ] 4. Prove manual upgrade safety

@@ -33,6 +33,14 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - The UI cache retains at most the newest 500 unique events per run while advancing the durable polling cursor.
 - Project polling is guarded by a reusable exclusive-task primitive. Regression contracts prove overlapping timer ticks are skipped, polling resumes after completion, and a failed tick releases the guard.
 
+## Native latency baseline
+
+- The universal macOS app at Harness commit `83bdd022a2bfebab8543132433f7e2164357b32c` was measured on an Apple M5 with 10 logical CPUs and 32 GiB of memory, macOS/Darwin 25.6.0 arm64.
+- Three isolated clean launches measured 503.5 ms median and 1,110.3 ms maximum process-to-ready latency against a 3,000 ms maximum budget; median frontend boot work was 282 ms.
+- Three isolated launches restoring the trusted `rubyn-test` acceptance clone measured 534.0 ms median and 551.2 ms maximum process-to-project-ready latency against a 4,000 ms maximum budget; median frontend boot work was 317 ms.
+- The reusable native runner fails when the packaged frontend does not report readiness, when project restoration does not complete, or when the slowest sample exceeds its explicit budget. It writes only to host-validated `rubyn-harness-test-*` temporary app-data directories; ordinary app launches retain no performance telemetry.
+- Full measurements and hardware evidence are retained at `/private/tmp/rubyn-harness-test-performance-83bdd02-native/native-performance-report.json`.
+
 ## Upgrade-state safety
 
 - A state schema newer than the supported schema 9 is rejected before migration or save; primary and backup bytes remain unchanged.
@@ -54,7 +62,7 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - Rubyn-provider chats now emit cumulative input, cached-input, cache-write, output, and total tokens.
 - Rubyn measures tokens removed by tool-output compression and context compaction. The UI reports these as Rubyn savings and reports provider cache reuse separately.
 - The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
-- Frontend: 71 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,076 raw / 232,411 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
+- Frontend: 71 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 842,303 raw / 232,531 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
 - Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
 - Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
 - Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.

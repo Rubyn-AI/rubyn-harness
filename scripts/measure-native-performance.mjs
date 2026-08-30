@@ -82,7 +82,7 @@ async function measureOnce(executable, root, label, projectPath, index) {
 
 async function main() {
   if (process.platform !== "darwin") throw new Error("Native performance acceptance currently supports macOS only.");
-  const executable = path.resolve(argument("app", "src-tauri/target/universal-apple-darwin/release/bundle/macos/Rubyn Harness.app/Contents/MacOS/Rubyn Harness"));
+  const executable = path.resolve(argument("app", "src-tauri/target/universal-apple-darwin/release/bundle/macos/Rubyn Harness.app/Contents/MacOS/rubyn-harness"));
   const projectArgument = argument("project");
   if (!projectArgument) throw new Error("Pass an isolated Rails fixture with --project=/absolute/path.");
   const project = realpathSync(path.resolve(projectArgument));
