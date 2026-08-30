@@ -130,6 +130,12 @@ impl StateRepository {
             }
             database
         };
+        if database.version > DATABASE_VERSION {
+            return Err(StoreError::Validation(format!(
+                "local state schema {} was written by a newer Rubyn Harness; this version supports schema {}. Install a newer Harness or move the local state aside before retrying. The state files were not modified.",
+                database.version, DATABASE_VERSION
+            )));
+        }
 
         let mut repository = Self {
             directory,
@@ -153,9 +159,12 @@ impl StateRepository {
         repository.refresh_task_readiness();
         let _ = repository.recover_interrupted_runs();
         let scrubbed_provider_diagnostics = repository.scrub_provider_diagnostics();
-        let _ = restore_primary;
         // Opening is also the migration boundary; persist normalized columns and statuses.
-        repository.save()?;
+        if restore_primary {
+            repository.save_without_backup_rotation()?;
+        } else {
+            repository.save()?;
+        }
         if scrubbed_provider_diagnostics {
             fs::copy(&repository.file, &repository.backup)?;
             File::open(&repository.backup)?.sync_all()?;
@@ -3131,6 +3140,14 @@ impl StateRepository {
     }
 
     fn save(&self) -> Result<(), StoreError> {
+        self.save_internal(true)
+    }
+
+    fn save_without_backup_rotation(&self) -> Result<(), StoreError> {
+        self.save_internal(false)
+    }
+
+    fn save_internal(&self, rotate_backup: bool) -> Result<(), StoreError> {
         let serialized = serde_json::to_vec_pretty(&self.database)?;
         let temporary = self.directory.join("harness-database.tmp");
         let mut file = OpenOptions::new()
@@ -3141,7 +3158,7 @@ impl StateRepository {
         file.write_all(&serialized)?;
         file.sync_all()?;
         drop(file);
-        if self.file.is_file() {
+        if rotate_backup && self.file.is_file() {
             fs::copy(&self.file, &self.backup)?;
             File::open(&self.backup)?.sync_all()?;
         }
@@ -3378,6 +3395,53 @@ mod tests {
             std::process::id(),
             timestamp()
         ))
+    }
+
+    #[test]
+    fn newer_state_fails_closed_without_modifying_primary_or_backup() {
+        let directory = test_directory("newer-schema");
+        fs::create_dir_all(&directory).unwrap();
+        let primary = directory.join("harness-database.json");
+        let backup = directory.join("harness-database.backup.json");
+        let mut database = PersistentDatabase::default();
+        database.version = DATABASE_VERSION + 1;
+        let primary_contents = serde_json::to_vec_pretty(&database).unwrap();
+        let backup_contents = b"preserve this recovery evidence\n";
+        fs::write(&primary, &primary_contents).unwrap();
+        fs::write(&backup, backup_contents).unwrap();
+
+        let error = match StateRepository::open(&directory) {
+            Ok(_) => panic!("newer state must fail closed"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("written by a newer Rubyn Harness"));
+        assert!(error.contains("were not modified"));
+        assert_eq!(fs::read(&primary).unwrap(), primary_contents);
+        assert_eq!(fs::read(&backup).unwrap(), backup_contents);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn corrupt_primary_restores_from_backup_without_rotating_corruption_over_it() {
+        let directory = test_directory("backup-restore");
+        let repository = StateRepository::open(&directory).unwrap();
+        repository.save().unwrap();
+        drop(repository);
+        let primary = directory.join("harness-database.json");
+        let backup = directory.join("harness-database.backup.json");
+        let backup_contents = fs::read(&backup).unwrap();
+        fs::write(&primary, b"{ corrupt primary").unwrap();
+
+        let restored = StateRepository::open(&directory).unwrap();
+
+        assert_eq!(
+            restored.diagnostic_summary().schema_version,
+            DATABASE_VERSION
+        );
+        assert_eq!(fs::read(&backup).unwrap(), backup_contents);
+        assert!(read_database(&primary).is_ok());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

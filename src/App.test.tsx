@@ -636,6 +636,19 @@ describe("native product flow", () => {
     expect(screen.getByRole("button", { name: "Start conversation" })).toBeDisabled();
   });
 
+  it("distinguishes an upgrade-state failure from a Ruby runtime failure", async () => {
+    native.appState.mockRejectedValue(new Error("local state schema 10 was written by a newer Rubyn Harness; the state files were not modified"));
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Rubyn Harness cannot open local state." })).toBeInTheDocument();
+    expect(screen.getByText(/schema 10 was written by a newer Rubyn Harness/i)).toBeInTheDocument();
+    expect(screen.getByText(/move that folder aside/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Install Ruby 4\.0\.6/i)).not.toBeInTheDocument();
+    expect(useHarnessStore.getState().engineState).toBe("ready");
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
+  });
+
   it("treats cleanup-pending worktree dispositions as terminal", async () => {
     native.appState.mockResolvedValue({
       ...emptyState,

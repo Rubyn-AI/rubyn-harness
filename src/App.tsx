@@ -1391,12 +1391,17 @@ function DesktopRequired() {
   );
 }
 
+function ApplicationStateFailure({ detail }: { detail: string }) {
+  return <main className="onboarding-shell"><section className="onboarding-card state-failure" aria-labelledby="state-failure-title"><span className="brand-mark">R</span><Kicker>Local state recovery</Kicker><h1 id="state-failure-title">Rubyn Harness cannot open local state.</h1><p>Your state files were not modified. Preserve both database files before attempting recovery.</p><code>{detail}</code><ol><li>If this state came from a newer beta, install that version or a later one.</li><li>Otherwise, quit Harness and preserve <code>~/Library/Application Support/dev.rubyn.harness</code> for support.</li><li>To start clean without deleting evidence, move that folder aside and reopen Harness.</li></ol></section></main>;
+}
+
 export function App() {
   const store = useHarnessStore();
   const projectPath = store.project?.path;
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [switchingProject, setSwitchingProject] = useState(false);
   const [pendingTrust, setPendingTrust] = useState<ProjectSummary>();
+  const [appStateError, setAppStateError] = useState("");
 
   useEffect(() => {
     if (!isDesktop()) return;
@@ -1405,9 +1410,27 @@ export function App() {
       const state = useHarnessStore.getState();
       state.setLoading(true);
       try {
-        const [engine, appState] = await Promise.all([harnessBridge.engineHealth(), harnessBridge.appState()]);
+        setAppStateError("");
+        try {
+          const engine = await harnessBridge.engineHealth();
+          if (!current) return;
+          state.setEngine(engine.healthy ? "ready" : "unavailable", engine.version || engine.detail || "Rubyn Code unavailable");
+        } catch (error) {
+          if (!current) return;
+          state.setEngine("unavailable", String(error));
+          state.setNotice(`Rubyn runtime unavailable: ${String(error)}`);
+        }
+        let appState: LocalAppState;
+        try {
+          appState = await harnessBridge.appState();
+        } catch (error) {
+          if (!current) return;
+          const detail = String(error);
+          setAppStateError(detail);
+          state.setNotice(`Application state unavailable: ${detail}`);
+          return;
+        }
         if (!current) return;
-        state.setEngine(engine.healthy ? "ready" : "unavailable", engine.version || engine.detail || "Rubyn Code unavailable");
         state.setAppState(appState);
         try { state.setModelCatalog(await harnessBridge.listModels()); } catch { /* Provider setup remains available after boot. */ }
         try { state.setSkills(await harnessBridge.listBundledSkills()); } catch { state.setSkills([]); }
@@ -1430,8 +1453,9 @@ export function App() {
         }
       } catch (error) {
         if (current) {
-          state.setEngine("unavailable", String(error));
-          state.setNotice(String(error));
+          const detail = String(error);
+          setAppStateError(detail);
+          state.setNotice(`Harness startup failed: ${detail}`);
         }
       } finally { if (current) state.setLoading(false); }
     };
@@ -1520,6 +1544,7 @@ export function App() {
   };
 
   if (!isDesktop()) return <DesktopRequired />;
+  if (!store.loading && appStateError) return <ApplicationStateFailure detail={appStateError} />;
   if (!store.loading && store.appState && (store.appState.onboardingVersion || 0) < ONBOARDING_VERSION) {
     return <FirstLaunchDisclosure state={store.appState} onContinue={async (state) => { store.setAppState(await harnessBridge.saveAppState(state)); }} />;
   }

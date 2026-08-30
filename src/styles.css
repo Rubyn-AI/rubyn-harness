@@ -124,6 +124,7 @@ main { min-width: 0; }.topbar { height: 70px; padding: 0 clamp(21px, 4vw, 58px);
 .onboarding-facts span { color:#918b8e;font-size:11px;line-height:1.45; }
 .onboarding-local-note { padding-left:13px;border-left:2px solid #8f3f4b; }
 .onboarding-card > .button { margin-top:12px; }
+.state-failure > code { display:block;margin:20px 0;padding:12px;border:1px solid #594549;border-radius:7px;background:#151417;color:#e0bd82;font:10px/1.6 "IBM Plex Mono";white-space:normal; }.state-failure ol { margin:0;padding-left:21px;color:#b9b0b2;font-size:12px;line-height:1.75; }.state-failure li code { padding:2px 5px;border-radius:3px;background:#151417;color:#ddd0bd;font:10px "IBM Plex Mono"; }
 .trust-backdrop { z-index:80; }
 .trust-dialog { width:min(590px,calc(100vw - 32px));padding:28px;border:1px solid #51484e;border-radius:13px;background:#201e22;box-shadow:0 30px 100px rgba(0,0,0,.6); }
 .trust-dialog header { display:flex;gap:14px;align-items:center; }
