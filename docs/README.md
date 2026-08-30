@@ -10,7 +10,7 @@ Rubyn Harness is targeting an external macOS beta for trusted local Ruby and Rai
 - [x] **04 — Safe Review & Integration:** Handle repository drift, conflicts, no-change runs, integration, discard, and cleanup recovery.
 - [x] **05 — Privacy, Revocation & Diagnostics:** Add credential revocation, local-data removal, secret-safe logs, and sanitized diagnostics.
 - [ ] **06 — Signed Beta Distribution:** Pin toolchains and produce versioned, signed, notarized macOS application and DMG releases.
-- [ ] **07 — Beta Acceptance & Hardening:** Run every approved journey from a clean install and close accessibility, performance, and release-checklist gaps.
+- [ ] **07 — Beta Acceptance & Hardening:** In progress; run every approved journey from a clean install and close accessibility, performance, and release-checklist gaps.
 
 ## Working agreement
 

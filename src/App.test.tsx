@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import axe from "axe-core";
 import type {
   LocalAppState,
   ProjectData,
@@ -457,6 +458,7 @@ describe("native product flow", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Remove all Rubyn Harness local workspace data?");
     expect(screen.getByText(/Source repositories and provider accounts are not deleted/i)).toBeInTheDocument();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Remove local data" }));
 
     await waitFor(() => expect(native.clearLocalData).toHaveBeenCalledTimes(1));
@@ -587,6 +589,14 @@ describe("native product flow", () => {
     expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
   });
 
+  it("has no automated accessibility violations in the primary empty-project shell", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" });
+
+    const result = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
+    expect(result.violations).toEqual([]);
+  });
+
   it("blocks the empty-project call to action when the native runtime is unavailable", async () => {
     native.engineHealth.mockResolvedValue({
       available: true,
@@ -602,6 +612,7 @@ describe("native product flow", () => {
     expect(screen.getByText(/requires Ruby 4\.0\.2\+/i)).toBeInTheDocument();
     expect(screen.getByText("gem install rubyn-code")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Choose project/ })).not.toBeInTheDocument();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: "Open project runtime" }));
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
@@ -842,6 +853,15 @@ describe("native product flow", () => {
     expect(await screen.findByRole("heading", { name: "Choose a Rails or Ruby project" })).toBeInTheDocument();
   });
 
+  it("has no automated accessibility violations in first-launch disclosure", async () => {
+    native.appState.mockResolvedValue({ ...emptyState, onboardingVersion: 0, trustedProjectPaths: [] });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Your repository stays under your control." });
+
+    const result = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
+    expect(result.violations).toEqual([]);
+  });
+
   it("inspects an untrusted repository without opening it when confirmation is cancelled", async () => {
     native.appState.mockResolvedValue({ ...emptyState, trustedProjectPaths: [] });
     native.chooseProjectFolder.mockResolvedValue(project.path);
@@ -854,6 +874,7 @@ describe("native product flow", () => {
     expect(screen.getAllByText(project.path)).toHaveLength(2);
     expect(screen.getByText("RUBYN.md detected")).toBeInTheDocument();
     expect(native.projectData).not.toHaveBeenCalled();
+    expect((await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("heading", { name: "Trust ledger?" })).not.toBeInTheDocument();
     expect(native.trustProject).not.toHaveBeenCalled();

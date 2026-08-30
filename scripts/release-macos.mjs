@@ -64,6 +64,8 @@ function main() {
   run("pnpm", ["run", "test:fixture"]);
   run("pnpm", ["run", "test:release"]);
   run("pnpm", ["run", "build"]);
+  run("pnpm", ["run", "test:performance"]);
+  run("pnpm", ["run", "performance:check"]);
   run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--check"]);
   run("cargo", ["clippy", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--all-features", "--", "-D", "warnings"]);
   run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
