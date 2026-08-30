@@ -69,9 +69,16 @@ The packaged app could be launched with isolated state, but the current console 
 - Rubyn measures tokens removed by tool-output compression and context compaction. The UI reports these as Rubyn savings and reports provider cache reuse separately.
 - The same durable summary renders in an active conversation and its retained Review screen; unavailable provider telemetry is labeled unavailable.
 - Frontend: 74 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 843,381 raw / 232,874 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
-- Engine: 2,875 examples passed; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
+- Engine: 2,887 examples passed with 91.19% line coverage; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
 - Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
 - Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.
+
+## Credential-storage hardening
+
+- Provider API keys on macOS now use the login Keychain through Security.framework; credentials never enter a subprocess argument or plaintext file.
+- A fake credential passed an actual native create, read, update, and delete round trip, including cleanup.
+- Existing encrypted provider keys migrate only after Keychain storage succeeds. Storage and revocation failures fail closed, and isolated test runs never query the user's real Keychain.
+- Stored Anthropic provider keys now correctly take precedence over the generic Claude OAuth/environment fallback.
 
 ## Distribution status
 
