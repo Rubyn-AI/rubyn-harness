@@ -25,6 +25,20 @@ A disposable custom provider named `rubyn-phase5-smoke` was connected with a fak
 
 Codex logout was not invoked during acceptance because it would revoke the tester's real session. Its subprocess behavior and refreshed readiness are covered by native command code and frontend bridge tests.
 
+## Provider-key storage hardening
+
+The beta hardening pass moved provider API keys on macOS into the login Keychain
+through Security.framework, without placing credential material in command
+arguments, standard input, or plaintext files. A fake credential passed an
+actual create, read, update, and delete round trip. The focused credential suite
+passed 50 examples and the complete Rubyn Code suite passed 2,887 examples with
+91.19% line coverage.
+
+Legacy encrypted provider keys remain readable and migrate only after Keychain
+accepts the credential. Storage and revocation failures fail closed, test runs
+cannot access the user's real Keychain, and a stored Anthropic API key now takes
+precedence over the generic OAuth/environment fallback.
+
 ## Source preservation
 
 No source repository was selected during the destructive-data smoke. The original `/Users/fadedmaturity/rubyn-test` checkout remained at `ab0f6b10bfebadf5c5f401cf237ce3f347db1ce3` with its pre-existing generated modifications unchanged (`Gemfile.lock`, `log/development.log`, `tmp/cache/bootsnap/load-path-cache`, and `.rubyn-code/`).
