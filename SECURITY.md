@@ -19,9 +19,9 @@ repositories should be enabled by default.
 
 ## Reporting a vulnerability
 
-Please open a private security advisory in the GitHub repository. Include the
-affected version, reproduction steps, impact, and any suggested mitigation.
-Do not open a public issue before a fix is available.
+Please open a [private security advisory](https://github.com/Rubyn-AI/rubyn-harness/security/advisories/new).
+Include the affected version, reproduction steps, impact, and any suggested
+mitigation. Do not open a public issue before a fix is available.
 
 ## Supported versions
 

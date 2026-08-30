@@ -3,6 +3,8 @@ name = "rubyn-harness"
 version = "0.1.15"
 description = "A focused native harness for Ruby and Rails teams"
 authors = ["Rubyn Harness contributors"]
+homepage = "https://github.com/Rubyn-AI/rubyn-harness"
+repository = "https://github.com/Rubyn-AI/rubyn-harness"
 edition = "2021"
 rust-version = "1.97.1"
 

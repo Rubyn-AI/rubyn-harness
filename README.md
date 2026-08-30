@@ -83,7 +83,7 @@ Prerequisites:
 - Ruby 4.0.6 for running and releasing the bundled Rubyn Code source
 
 ```bash
-git clone --recurse-submodules <your-fork-url>
+git clone --recurse-submodules https://github.com/Rubyn-AI/rubyn-harness.git
 cd rubyn-harness
 pnpm install
 pnpm tauri dev

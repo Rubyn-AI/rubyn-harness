@@ -2,6 +2,14 @@
   "name": "rubyn-harness",
   "private": true,
   "version": "0.1.15",
+  "homepage": "https://github.com/Rubyn-AI/rubyn-harness#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rubyn-AI/rubyn-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Rubyn-AI/rubyn-harness/issues"
+  },
   "type": "module",
   "engines": {
     "node": "22.22.2",
