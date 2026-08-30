@@ -6,7 +6,7 @@ Use Node 22.22.2 (for example, `nvm use`), then run:
 pnpm release:check
 ```
 
-For an actual beta, install a valid `Developer ID Application` certificate, tag the clean release commit as `v<version>`, and configure either App Store Connect API credentials (`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) or Apple ID credentials (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`). Set `APPLE_SIGNING_IDENTITY` to the exact certificate name, then run:
+For an actual beta, install a valid `Developer ID Application` certificate, tag the clean release commit as `v<version>`, and configure either App Store Connect API credentials (`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) or a `notarytool` Keychain profile (`APPLE_NOTARY_KEYCHAIN_PROFILE`). Set `APPLE_SIGNING_IDENTITY` to the exact certificate name, then run:
 
 ```bash
 pnpm release:macos
@@ -22,4 +22,4 @@ gem install rubyn-code
 
 The installed gem supplies the runtime dependencies for the pinned Rubyn Code source inside Harness. A clean machine without this prerequisite is expected to show “Finish Rubyn runtime setup” and prevent repository selection or conversation launch until setup is complete.
 
-Never share Apple credentials, `.p8` keys, `.p12` certificates, or keychain passwords in issues, diagnostics, release manifests, or application data.
+Never share Apple credentials, `.p8` keys, `.p12` certificates, app-specific passwords, or keychain passwords in issues, diagnostics, release manifests, process arguments, or application data.

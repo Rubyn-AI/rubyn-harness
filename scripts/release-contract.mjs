@@ -29,7 +29,6 @@ export function validateReleaseContract(root = projectRoot) {
   const rustToolchain = readFileSync(path.join(root, "rust-toolchain.toml"), "utf8");
   const nvmVersion = readFileSync(path.join(root, ".nvmrc"), "utf8").trim();
   const rubyVersion = readFileSync(path.join(root, ".ruby-version"), "utf8").trim();
-  const entitlements = readFileSync(path.join(root, "src-tauri/Entitlements.plist"), "utf8");
   const versions = {
     app: packageJson.version,
     node: packageJson.engines?.node,
@@ -51,11 +50,10 @@ export function validateReleaseContract(root = projectRoot) {
   if (!Array.isArray(tauri.bundle?.targets) || !["app", "dmg"].every((target) => tauri.bundle.targets.includes(target))) errors.push("Tauri bundle targets must include app and dmg.");
   if (tauri.bundle?.macOS?.minimumSystemVersion !== "13.0") errors.push("The beta deployment target must remain explicit at macOS 13.0.");
   if (tauri.bundle?.macOS?.hardenedRuntime !== true) errors.push("Hardened runtime must be explicitly enabled.");
-  if (tauri.bundle?.macOS?.entitlements !== "Entitlements.plist") errors.push("The reviewed entitlements file must be configured.");
-  if (/get-task-allow[\s\S]*?<true\s*\/>/i.test(entitlements)) errors.push("Release entitlements must not enable get-task-allow.");
+  if (Object.hasOwn(tauri.bundle?.macOS || {}, "entitlements")) errors.push("The beta must not configure custom macOS entitlements.");
   if (!/^[a-zA-Z0-9.-]+$/.test(tauri.identifier || "")) errors.push("The macOS bundle identifier is invalid.");
 
-  for (const relativePath of ["pnpm-lock.yaml", "src-tauri/Cargo.lock", "engine/rubyn-code/Gemfile.lock", "src-tauri/Entitlements.plist"]) {
+  for (const relativePath of ["pnpm-lock.yaml", "src-tauri/Cargo.lock", "engine/rubyn-code/Gemfile.lock"]) {
     if (!existsSync(path.join(root, relativePath))) errors.push(`${relativePath} must be committed for deterministic releases.`);
   }
   for (const resource of ["../engine/rubyn-code/lib", "../engine/rubyn-code/exe", "../engine/rubyn-code/skills", "../engine/rubyn-code/db"]) {
@@ -93,9 +91,10 @@ export function credentialMode(environment) {
   const appleIdFields = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"];
   const complete = (fields) => fields.every((field) => Boolean(environment[field]?.trim()));
   const partial = (fields) => fields.some((field) => Boolean(environment[field]?.trim()));
+  if (environment.APPLE_NOTARY_KEYCHAIN_PROFILE?.trim()) return "keychain-profile";
   if (complete(apiFields)) return "app-store-connect-api";
-  if (complete(appleIdFields)) return "apple-id";
-  if (partial(apiFields) || partial(appleIdFields)) return "incomplete";
+  if (partial(apiFields)) return "incomplete";
+  if (partial(appleIdFields)) return "unsafe-apple-id-environment";
   return "missing";
 }
 

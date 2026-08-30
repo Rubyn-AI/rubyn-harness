@@ -2,17 +2,17 @@
 
 ## Toolchain contract
 
-`.nvmrc`, `.ruby-version`, and `rust-toolchain.toml` pin the build runtimes. Package metadata pins pnpm and repeats the exact Node version; Cargo repeats the exact Rust version. `scripts/release-contract.mjs` treats drift among these files, application versions, lockfiles, engine resources, deployment metadata, or entitlements as a release-blocking error.
+`.nvmrc`, `.ruby-version`, and `rust-toolchain.toml` pin the build runtimes. Package metadata pins pnpm and repeats the exact Node version; Cargo repeats the exact Rust version. `scripts/release-contract.mjs` treats drift among these files, application versions, lockfiles, engine resources, deployment metadata, or signing policy as a release-blocking error.
 
 ## macOS bundle policy
 
-Tauri produces only application and DMG bundles. Its macOS configuration explicitly sets macOS 13.0, hardened runtime, and a reviewed minimal entitlements file. The release command targets `universal-apple-darwin` and inspects the final executable for both arm64 and x86_64 slices.
+Tauri produces only application and DMG bundles. Its macOS configuration explicitly sets macOS 13.0 and hardened runtime. The application requires no custom entitlements, so the release contract rejects any configured entitlement blob; this avoids both unnecessary privileges and invalid empty-entitlement signatures. The release command targets `universal-apple-darwin` and inspects the final executable for both arm64 and x86_64 slices.
 
 ## Trusted release command
 
 `scripts/release-macos.mjs` is the only documented beta release entrypoint. Before building it verifies a clean exact-tag source state, clean submodule pin, Developer ID identity, and one complete Tauri-supported notarization credential set. It then runs every release check, builds through Tauri, and verifies code signing, hardened runtime, stapling, and Gatekeeper acceptance.
 
-The script reads credential presence but never logs values. Tauri receives credentials through the inherited environment and handles notarization. App Store Connect API credentials are preferred; Apple ID plus app-specific password remains supported by Tauri.
+The script reads credential presence but never logs values. It builds without Apple credentials, then uses Apple's native `codesign`, `notarytool`, and `stapler` commands so universal signatures are independently verifiable. App Store Connect API credentials are supported directly. Apple ID credentials must first be stored with `notarytool store-credentials`; the release receives only the Keychain profile name, never an app-specific password.
 
 ## Provenance
 
@@ -26,4 +26,4 @@ Harness validates both the Ruby version and the ability to load the bundled engi
 
 ## Known external gate
 
-This machine currently has no Developer ID Application identity, so a genuinely signed and notarized artifact cannot be produced locally until Apple release authority is installed. The ordinary DMG remains an internal unsigned test build.
+This machine has a valid Developer ID Application identity, but no complete notarization credential set is available. Developer ID-signed local candidates can be verified here; an externally distributable beta remains blocked until an App Store Connect API key or `notarytool` Keychain profile is configured and the trusted release command succeeds.

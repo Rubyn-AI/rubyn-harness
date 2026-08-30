@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { assertReleaseContract, credentialMode, projectRoot } from "./release-contract.mjs";
 
@@ -8,10 +9,10 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd || projectRoot,
     encoding: "utf8",
-    env: process.env,
+    env: options.env || process.env,
     stdio: options.capture ? "pipe" : "inherit",
   });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed.`);
+  if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}.`);
   return `${result.stdout || ""}${result.stderr || ""}`.trim();
 }
 
@@ -23,8 +24,9 @@ function requireReleaseAuthority(versions) {
   if (!identities.includes(identity)) throw new Error("APPLE_SIGNING_IDENTITY is not available in the active keychain.");
 
   const credentials = credentialMode(process.env);
-  if (credentials === "missing") throw new Error("Notarization credentials are missing. Configure one complete Tauri-supported Apple credential set.");
+  if (credentials === "missing") throw new Error("Notarization credentials are missing. Configure an App Store Connect API key or notarytool Keychain profile.");
   if (credentials === "incomplete") throw new Error("Notarization credentials are incomplete.");
+  if (credentials === "unsafe-apple-id-environment") throw new Error("Apple ID passwords are not accepted from the environment. Store notarization credentials in Keychain and set APPLE_NOTARY_KEYCHAIN_PROFILE.");
   if (credentials === "app-store-connect-api" && !existsSync(process.env.APPLE_API_KEY_PATH)) throw new Error("APPLE_API_KEY_PATH does not point to a readable key file.");
 
   const status = run("git", ["status", "--porcelain"], { capture: true });
@@ -34,6 +36,48 @@ function requireReleaseAuthority(versions) {
   const tag = run("git", ["describe", "--tags", "--exact-match", "HEAD"], { capture: true });
   if (tag !== `v${versions.app}`) throw new Error(`Release commit must be tagged v${versions.app}.`);
   return { credentials, identity, tag };
+}
+
+function notarize(file, authority) {
+  const args = ["notarytool", "submit", file];
+  if (authority.credentials === "keychain-profile") {
+    args.push("--keychain-profile", process.env.APPLE_NOTARY_KEYCHAIN_PROFILE);
+  } else {
+    args.push("--key", process.env.APPLE_API_KEY_PATH, "--key-id", process.env.APPLE_API_KEY, "--issuer", process.env.APPLE_API_ISSUER);
+  }
+  args.push("--wait", "--timeout", "30m");
+  run("xcrun", args);
+}
+
+function signAndNotarize(appPath, dmgPath, dmgDirectory, authority) {
+  run("codesign", ["--force", "--deep", "--strict", "--options", "runtime", "--timestamp", "--sign", authority.identity, appPath]);
+
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "rubyn-harness-release-"));
+  try {
+    const archivePath = path.join(temporaryRoot, "Rubyn Harness.zip");
+    run("ditto", ["-c", "-k", "--keepParent", appPath, archivePath]);
+    notarize(archivePath, authority);
+    run("xcrun", ["stapler", "staple", appPath]);
+
+    const dmgSource = path.join(temporaryRoot, "dmg-source");
+    mkdirSync(dmgSource);
+    run("ditto", [appPath, path.join(dmgSource, path.basename(appPath))]);
+    rmSync(dmgPath, { force: true });
+    run("bash", [
+      path.join(dmgDirectory, "bundle_dmg.sh"),
+      "--volname", "Rubyn Harness",
+      "--icon", path.basename(appPath), "180", "170",
+      "--hide-extension", path.basename(appPath),
+      "--app-drop-link", "480", "170",
+      "--codesign", authority.identity,
+      dmgPath,
+      dmgSource,
+    ]);
+    notarize(dmgPath, authority);
+    run("xcrun", ["stapler", "staple", dmgPath]);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 function sha256(file) {
@@ -70,7 +114,9 @@ function main() {
   run("cargo", ["clippy", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--all-features", "--", "-D", "warnings"]);
   run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
   run("bundle", ["exec", "rspec"], { cwd: path.join(projectRoot, "engine/rubyn-code") });
-  run("pnpm", ["tauri", "build", "--target", "universal-apple-darwin", "--bundles", "app,dmg"]);
+  const unsignedBuildEnvironment = { ...process.env };
+  for (const name of ["APPLE_SIGNING_IDENTITY", "APPLE_NOTARY_KEYCHAIN_PROFILE", "APPLE_API_ISSUER", "APPLE_API_KEY", "APPLE_API_KEY_PATH", "APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"]) delete unsignedBuildEnvironment[name];
+  run("pnpm", ["tauri", "build", "--target", "universal-apple-darwin", "--bundles", "app,dmg"], { env: unsignedBuildEnvironment });
 
   const bundleRoot = path.join(projectRoot, "src-tauri/target/universal-apple-darwin/release/bundle");
   const appPath = path.join(bundleRoot, "macos/Rubyn Harness.app");
@@ -78,6 +124,7 @@ function main() {
   const dmgs = readdirSync(dmgDirectory).filter((name) => name.endsWith(".dmg"));
   if (!existsSync(appPath) || dmgs.length !== 1) throw new Error("Expected exactly one release application and DMG.");
   const dmgPath = path.join(dmgDirectory, dmgs[0]);
+  signAndNotarize(appPath, dmgPath, dmgDirectory, authority);
   verifyArtifact(appPath, dmgPath);
 
   const commit = run("git", ["rev-parse", "HEAD"], { capture: true });
