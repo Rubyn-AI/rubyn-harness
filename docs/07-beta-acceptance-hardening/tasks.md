@@ -20,6 +20,6 @@
 
 ## [ ] 4. Prove manual upgrade safety
 
-- [ ] 4.1 Create a sanitized prior-version state fixture. (refs Req 7.4)
-- [ ] 4.2 Prove compatible state survives replacement and newer/invalid state fails with recovery guidance. (refs Req 7.4)
+- [x] 4.1 Create a sanitized prior-version state fixture. (refs Req 7.4)
+- [x] 4.2 Prove compatible state survives replacement and newer/invalid state fails with recovery guidance. (refs Req 7.4)
 - [ ] 4.3 Complete the native A–G matrix and publish the final beta checklist. (refs Req 7.1, Req 7.4)

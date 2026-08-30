@@ -3403,8 +3403,10 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let primary = directory.join("harness-database.json");
         let backup = directory.join("harness-database.backup.json");
-        let mut database = PersistentDatabase::default();
-        database.version = DATABASE_VERSION + 1;
+        let database = PersistentDatabase {
+            version: DATABASE_VERSION + 1,
+            ..PersistentDatabase::default()
+        };
         let primary_contents = serde_json::to_vec_pretty(&database).unwrap();
         let backup_contents = b"preserve this recovery evidence\n";
         fs::write(&primary, &primary_contents).unwrap();
@@ -3441,6 +3443,30 @@ mod tests {
         );
         assert_eq!(fs::read(&backup).unwrap(), backup_contents);
         assert!(read_database(&primary).is_ok());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn sanitized_version_six_fixture_upgrades_and_preserves_its_original_backup() {
+        let directory = test_directory("version-six-fixture");
+        fs::create_dir_all(&directory).unwrap();
+        let primary = directory.join("harness-database.json");
+        let backup = directory.join("harness-database.backup.json");
+        let fixture = include_bytes!("../tests/fixtures/state-v6.json");
+        fs::write(&primary, fixture).unwrap();
+
+        let upgraded = StateRepository::open(&directory).unwrap();
+
+        assert_eq!(
+            upgraded.diagnostic_summary().schema_version,
+            DATABASE_VERSION
+        );
+        assert_eq!(
+            upgraded.snapshot().preferences.default_model,
+            "anthropic/claude-sonnet"
+        );
+        assert_eq!(read_database(&backup).unwrap().version, 6);
+        assert_eq!(fs::read(&backup).unwrap(), fixture);
         fs::remove_dir_all(directory).unwrap();
     }
 

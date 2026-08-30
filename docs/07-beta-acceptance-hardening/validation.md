@@ -29,4 +29,5 @@ Color contrast is intentionally excluded from jsdom automation because rendered 
 - A state schema newer than the supported schema 9 is rejected before migration or save; primary and backup bytes remain unchanged.
 - A corrupt primary with a valid backup restores the primary without rotating corrupt bytes over the known-good backup.
 - Runtime health and application-state health now initialize independently. A state failure keeps a healthy Rubyn runtime marked ready and renders dedicated, actionable recovery guidance.
-- Rust: 62 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 68-test suite.
+- A checked-in, path-free schema-6 fixture upgrades to schema 9, retains its model preference, and preserves the original fixture byte-for-byte as the backup.
+- Rust: 63 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 68-test suite.

@@ -1,0 +1,14 @@
+{
+  "version": 6,
+  "app_state": {
+    "preferences": {
+      "defaultModel": "anthropic/claude-sonnet",
+      "parallelLimit": 2,
+      "autoCompaction": true,
+      "yoloEnabled": false
+    },
+    "recentProjects": [],
+    "onboardingVersion": 1,
+    "trustedProjectPaths": []
+  }
+}
