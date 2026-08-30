@@ -14,6 +14,7 @@ use std::{
 };
 
 const RUBY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const RUBY_RUNTIME_PROBE: &str = "abort unless Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('4.0.2'); require 'rubyn_code'; require 'rubyn_code/auth/provider_keychain'";
 use thiserror::Error;
 
 const MAX_DIFF_BYTES: usize = 1_048_576;
@@ -852,10 +853,7 @@ pub fn ruby_runtime_for(root: &Path) -> Option<PathBuf> {
         command
             .arg("-I")
             .arg(root.join("lib"))
-            .args([
-                "-e",
-                "abort unless Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('4.0.2'); require 'rubyn_code'",
-            ])
+            .args(["-e", RUBY_RUNTIME_PROBE])
             .current_dir(root);
         command_output_with_timeout(&mut command, RUBY_PROBE_TIMEOUT)
             .is_some_and(|output| output.status.success())
@@ -974,6 +972,11 @@ mod tests {
         assert!(candidates[1].ends_with("versions/4.0.2/bin/ruby"));
         assert!(candidates[2].ends_with("versions/3.4.8/bin/ruby"));
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn runtime_probe_loads_provider_credential_dependencies() {
+        assert!(RUBY_RUNTIME_PROBE.contains("require 'rubyn_code/auth/provider_keychain'"));
     }
 
     #[test]

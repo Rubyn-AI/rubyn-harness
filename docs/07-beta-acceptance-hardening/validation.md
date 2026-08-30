@@ -52,7 +52,7 @@ The packaged app could be launched with isolated state, but the current console 
 - A corrupt primary with a valid backup restores the primary without rotating corrupt bytes over the known-good backup.
 - Runtime health and application-state health now initialize independently. A state failure keeps a healthy Rubyn runtime marked ready and renders dedicated, actionable recovery guidance.
 - A checked-in, path-free schema-6 fixture upgrades to schema 9, retains its model preference, and preserves the original fixture byte-for-byte as the backup.
-- Rust: 66 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 74-test suite.
+- Rust: 67 tests passed with formatting and strict Clippy; the frontend recovery flow is included in the 74-test suite.
 
 ## Isolated acceptance run
 
@@ -71,7 +71,7 @@ The packaged app could be launched with isolated state, but the current console 
 - Frontend: 74 tests passed with lint, production build, and asset-budget verification. Production assets remain within budget at 843,381 raw / 232,874 gzip JavaScript bytes and 95,795 raw / 19,741 gzip CSS bytes.
 - Engine: 2,887 examples passed with 91.19% line coverage; the changed engine files passed RuboCop. The full repository RuboCop baseline still reports unrelated pre-existing offenses in provider and Wayfinder tooling.
 - Native startup probes now prefer direct installed rbenv Ruby binaries over shims and terminate a hung candidate plus its process group after two seconds instead of blocking the AppKit thread indefinitely.
-- Rust: 66 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.
+- Rust: 67 tests passed with formatting and strict Clippy, including direct-rbenv ordering plus successful and timed-out command-probe contracts.
 
 ## Credential-storage hardening
 
@@ -79,6 +79,7 @@ The packaged app could be launched with isolated state, but the current console 
 - A fake credential passed an actual native create, read, update, and delete round trip, including cleanup.
 - Existing encrypted provider keys migrate only after Keychain storage succeeds. Storage and revocation failures fail closed, and isolated test runs never query the user's real Keychain.
 - Stored Anthropic provider keys now correctly take precedence over the generic Claude OAuth/environment fallback.
+- Harness runtime readiness now loads the provider-key bridge as part of its bounded Ruby probe, so a Ruby installation missing the required `fiddle` gem is blocked during preflight instead of failing later during provider setup.
 
 ## Distribution status
 
