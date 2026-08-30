@@ -4,8 +4,8 @@
   "version": "0.1.15",
   "type": "module",
   "engines": {
-    "node": ">=20",
-    "pnpm": ">=10"
+    "node": "22.22.2",
+    "pnpm": "10.14.0"
   },
   "scripts": {
     "dev": "vite",
@@ -13,9 +13,12 @@
     "preview": "vite preview",
     "test": "vitest run --exclude 'scripts/**'",
     "test:fixture": "node --test scripts/prepare-beta-fixture.test.mjs",
+    "test:release": "node --test scripts/release-contract.test.mjs",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "release:check": "node scripts/release-contract.mjs",
+    "release:macos": "node scripts/release-macos.mjs"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.6",

@@ -38,7 +38,7 @@ simulates agents, repository state, reviews, usage, or task progress.
 
 - Rails-specific review gates
 - Provider adapters beyond Rubyn Code
-- Live token, cost, budget, cache, and compaction projections
+- Cost, budget, and compaction projections beyond the shipped per-conversation token and cache-reuse telemetry
 - A continuously running portfolio scheduler, notarized releases, and an updater
 - Bundled Ruby runtime and gems, plus Windows process-tree containment
 
@@ -76,11 +76,11 @@ See [the engine integration guide](docs/RUBYN_ENGINE_INTEGRATION.md) and the
 
 Prerequisites:
 
-- Node.js 20+
-- pnpm 10+
-- Rust 1.82+
+- Node.js 22.22.2
+- pnpm 10.14.0
+- Rust 1.97.1
 - Tauri 2 platform prerequisites
-- Ruby 4.0.2+ for running the bundled Rubyn Code source
+- Ruby 4.0.6 for running and releasing the bundled Rubyn Code source
 
 ```bash
 git clone --recurse-submodules <your-fork-url>
@@ -105,6 +105,9 @@ pnpm build
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
+pnpm test:fixture
+pnpm test:release
+pnpm release:check
 ```
 
 ## Engine development
