@@ -8,8 +8,12 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
+
+const RUBY_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 use thiserror::Error;
 
 const MAX_DIFF_BYTES: usize = 1_048_576;
@@ -840,43 +844,100 @@ pub fn ruby_runtime_for(root: &Path) -> Option<PathBuf> {
         PathBuf::from("ruby"),
     ]);
     candidates.into_iter().find(|ruby| {
-        Command::new(ruby)
+        let mut command = Command::new(ruby);
+        command
             .arg("-I")
             .arg(root.join("lib"))
             .args([
                 "-e",
                 "abort unless Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('4.0.2'); require 'rubyn_code'",
             ])
-            .current_dir(root)
-            .output()
-            .is_ok_and(|output| output.status.success())
+            .current_dir(root);
+        command_output_with_timeout(&mut command, RUBY_PROBE_TIMEOUT)
+            .is_some_and(|output| output.status.success())
     })
 }
 
 fn read_engine_version(root: &Path, ruby: &Path) -> Option<String> {
-    Command::new(ruby)
+    let mut command = Command::new(ruby);
+    command
         .args(["-I", "lib", "exe/rubyn-code", "--version"])
-        .current_dir(root)
-        .output()
-        .ok()
+        .current_dir(root);
+    command_output_with_timeout(&mut command, RUBY_PROBE_TIMEOUT)
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .filter(|version| !version.is_empty())
 }
 
 fn read_installed_engine_version() -> Option<String> {
-    Command::new("rubyn-code")
-        .arg("--version")
-        .output()
-        .ok()
+    let mut command = Command::new("rubyn-code");
+    command.arg("--version");
+    command_output_with_timeout(&mut command, RUBY_PROBE_TIMEOUT)
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .filter(|version| !version.is_empty())
 }
 
+fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command.spawn().ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) => {}
+            Err(_) => {
+                terminate_probe(&mut child);
+                return None;
+            }
+        }
+        if Instant::now() >= deadline {
+            terminate_probe(&mut child);
+            return None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn terminate_probe(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    #[cfg(not(unix))]
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_probe_returns_output_before_its_deadline() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "printf ready"]);
+
+        let output = command_output_with_timeout(&mut command, Duration::from_secs(1)).unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"ready");
+    }
+
+    #[test]
+    fn command_probe_terminates_a_hung_process_group() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 10"]);
+        let started = Instant::now();
+
+        assert!(command_output_with_timeout(&mut command, Duration::from_millis(50)).is_none());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn parses_branch_and_multiple_status_records() {
